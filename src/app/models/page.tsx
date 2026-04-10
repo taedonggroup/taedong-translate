@@ -1,32 +1,66 @@
-"use client";
+'use client';
 
-import { useState } from "react";
-import {
-  Plus,
-  Eye,
-  EyeOff,
-  CheckCircle2,
-  Circle,
-  Settings,
-  Zap,
-  Globe,
-} from "lucide-react";
+import { useState, useEffect } from 'react';
+import { Plus, Cpu, Globe, Zap, Loader2 } from 'lucide-react';
 
-interface ProviderCard {
+interface Provider {
   id: string;
   name: string;
-  status: "active" | "inactive" | "unconfigured";
-  isDefault?: boolean;
+  displayName: string;
+  active: boolean;
+  isDefault: boolean;
 }
 
-export default function ModelsPage() {
-  const [maskedKeys, setMaskedKeys] = useState<Record<string, boolean>>({
-    deepl: true,
-    claude: true,
-  });
+const PROVIDER_ICONS: Record<string, React.ElementType> = {
+  deepl: Globe,
+  claude: Zap,
+};
 
-  const toggleMask = (id: string) => {
-    setMaskedKeys((prev) => ({ ...prev, [id]: !prev[id] }));
+const PROVIDER_ICON_COLORS: Record<string, string> = {
+  deepl: 'text-blue-600',
+  claude: 'text-violet-500',
+};
+
+const PROVIDER_BG_COLORS: Record<string, string> = {
+  deepl: 'bg-blue-50',
+  claude: 'bg-violet-50',
+};
+
+export default function ModelsPage() {
+  const [providers, setProviders] = useState<Provider[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [seeding, setSeeding] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadProviders = async () => {
+    try {
+      const data = await fetch('/api/stats').then((r) => r.json()) as {
+        providers: Provider[];
+        error?: string;
+      };
+      if (data.error) setError(data.error);
+      setProviders(data.providers ?? []);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadProviders();
+  }, []);
+
+  const handleSeed = async () => {
+    setSeeding(true);
+    try {
+      await fetch('/api/seed', { method: 'POST' });
+      await loadProviders();
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setSeeding(false);
+    }
   };
 
   return (
@@ -46,180 +80,123 @@ export default function ModelsPage() {
           </button>
         </div>
 
-        {/* Cards */}
-        <div className="flex flex-col gap-4">
-          {/* Card 1: DeepL Free */}
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-            <div className="flex items-start justify-between mb-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-blue-50 rounded-lg flex items-center justify-center">
-                  <Globe size={20} className="text-blue-600" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h2 className="text-base font-semibold text-gray-900">
-                      DeepL Free
-                    </h2>
-                    <span className="px-2 py-0.5 text-xs font-medium bg-blue-100 text-blue-700 rounded-full">
-                      기본
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-1.5 mt-0.5">
-                    <span className="w-1.5 h-1.5 bg-green-500 rounded-full inline-block"></span>
-                    <span className="text-xs text-green-600 font-medium">
-                      연결됨
-                    </span>
-                  </div>
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <button className="px-3 py-1.5 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
-                  편집
-                </button>
-                <button className="px-3 py-1.5 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
-                  비활성화
-                </button>
-              </div>
-            </div>
-
-            {/* API Key */}
-            <div className="mb-4">
-              <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">
-                API Key
-              </label>
-              <div className="flex items-center gap-2 mt-1">
-                <code className="text-sm text-gray-700 font-mono bg-gray-50 px-3 py-1.5 rounded-lg border border-gray-100 flex-1">
-                  {maskedKeys["deepl"] ? "****-****-xxxx" : "abcd-efgh-1234"}
-                </code>
-                <button
-                  onClick={() => toggleMask("deepl")}
-                  className="p-1.5 text-gray-400 hover:text-gray-600 transition-colors"
-                >
-                  {maskedKeys["deepl"] ? (
-                    <Eye size={16} />
-                  ) : (
-                    <EyeOff size={16} />
-                  )}
-                </button>
-              </div>
-            </div>
-
-            {/* Usage bar */}
-            <div className="mb-4">
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">
-                  이번 달 사용량
-                </label>
-                <span className="text-xs text-gray-500">
-                  142,000 / 500,000자 (28%)
-                </span>
-              </div>
-              <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-blue-500 rounded-full"
-                  style={{ width: "28%" }}
-                ></div>
-              </div>
-            </div>
-
-            {/* Stats */}
-            <div className="flex gap-6 pt-2 border-t border-gray-100">
-              <div>
-                <p className="text-xs text-gray-400">비용</p>
-                <p className="text-sm font-semibold text-gray-700 mt-0.5">
-                  무료
-                </p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-400">평균 응답</p>
-                <p className="text-sm font-semibold text-gray-700 mt-0.5">
-                  320ms
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Card 2: Claude Haiku 4.5 */}
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-            <div className="flex items-start justify-between mb-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center">
-                  <Zap size={20} className="text-gray-400" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h2 className="text-base font-semibold text-gray-900">
-                      Claude Haiku 4.5
-                    </h2>
-                    <span className="px-2 py-0.5 text-xs font-medium bg-gray-100 text-gray-500 rounded-full">
-                      비활성
-                    </span>
-                  </div>
-                  <p className="text-xs text-gray-400 mt-0.5 font-mono">
-                    claude-haiku-4-5-20251001
-                  </p>
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <button className="px-3 py-1.5 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
-                  편집
-                </button>
-                <button className="px-3 py-1.5 text-sm text-blue-600 border border-blue-200 rounded-lg hover:bg-blue-50 transition-colors">
-                  활성화
-                </button>
-              </div>
-            </div>
-
-            <div className="flex gap-6 pt-2 border-t border-gray-100">
-              <div>
-                <p className="text-xs text-gray-400">이번 달 비용</p>
-                <p className="text-sm font-semibold text-gray-700 mt-0.5">
-                  $0.03
-                </p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-400">상태</p>
-                <p className="text-sm font-semibold text-gray-500 mt-0.5">
-                  비활성
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Card 3: Google Translate */}
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-            <div className="flex items-start justify-between mb-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-red-50 rounded-lg flex items-center justify-center">
-                  <Globe size={20} className="text-red-400" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h2 className="text-base font-semibold text-gray-900">
-                      Google Translate
-                    </h2>
-                    <span className="px-2 py-0.5 text-xs font-medium bg-orange-100 text-orange-600 rounded-full">
-                      미설정
-                    </span>
-                  </div>
-                  <p className="text-xs text-gray-400 mt-0.5">
-                    API 키를 설정해주세요
-                  </p>
-                </div>
-              </div>
-              <button className="px-4 py-1.5 text-sm text-blue-600 border border-blue-200 rounded-lg hover:bg-blue-50 transition-colors font-medium">
-                설정하기
+        {error && (
+          <div className="bg-yellow-50 border border-yellow-200 rounded-xl px-5 py-4 mb-6">
+            <p className="text-sm text-yellow-800">
+              DB가 연결되지 않았습니다.{' '}
+              <button
+                onClick={handleSeed}
+                disabled={seeding}
+                className="underline hover:no-underline disabled:opacity-50"
+              >
+                /api/seed를 호출해주세요.
               </button>
-            </div>
-
-            <div className="bg-orange-50 border border-orange-100 rounded-lg px-4 py-3">
-              <p className="text-xs text-orange-600">
-                Google Cloud Console에서 Translation API를 활성화하고 API 키를
-                발급받으세요.
-              </p>
-            </div>
+            </p>
           </div>
-        </div>
+        )}
+
+        {loading ? (
+          <div className="flex items-center justify-center h-40">
+            <Loader2 size={20} className="animate-spin text-gray-300" />
+          </div>
+        ) : providers.length === 0 ? (
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-12 flex flex-col items-center justify-center text-center space-y-3">
+            <div className="w-12 h-12 rounded-full bg-gray-50 flex items-center justify-center">
+              <Cpu size={22} className="text-gray-300" />
+            </div>
+            <p className="text-sm font-medium text-gray-500">등록된 AI 모델이 없습니다</p>
+            <p className="text-xs text-gray-400">모델을 추가하거나 시드 데이터를 생성해보세요</p>
+            <button
+              onClick={handleSeed}
+              disabled={seeding}
+              className="mt-2 flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+            >
+              {seeding ? (
+                <>
+                  <Loader2 size={14} className="animate-spin" />
+                  생성 중...
+                </>
+              ) : (
+                '시드 데이터 생성'
+              )}
+            </button>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-4">
+            {providers.map((provider) => {
+              const Icon = PROVIDER_ICONS[provider.name] ?? Cpu;
+              const iconColor = PROVIDER_ICON_COLORS[provider.name] ?? 'text-gray-400';
+              const iconBg = PROVIDER_BG_COLORS[provider.name] ?? 'bg-gray-50';
+
+              return (
+                <div
+                  key={provider.id}
+                  className="bg-white rounded-xl border border-gray-200 shadow-sm p-6"
+                >
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-10 h-10 ${iconBg} rounded-lg flex items-center justify-center`}>
+                        <Icon size={20} className={iconColor} />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h2 className="text-base font-semibold text-gray-900">
+                            {provider.displayName}
+                          </h2>
+                          {provider.isDefault && (
+                            <span className="px-2 py-0.5 text-xs font-medium bg-blue-100 text-blue-700 rounded-full">
+                              기본
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <span
+                            className={`w-1.5 h-1.5 rounded-full inline-block ${
+                              provider.active ? 'bg-green-500' : 'bg-gray-300'
+                            }`}
+                          />
+                          <span
+                            className={`text-xs font-medium ${
+                              provider.active ? 'text-green-600' : 'text-gray-400'
+                            }`}
+                          >
+                            {provider.active ? '연결됨' : '비활성'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <button className="px-3 py-1.5 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+                        편집
+                      </button>
+                      <button
+                        className={`px-3 py-1.5 text-sm border rounded-lg transition-colors ${
+                          provider.active
+                            ? 'text-gray-600 border-gray-200 hover:bg-gray-50'
+                            : 'text-blue-600 border-blue-200 hover:bg-blue-50'
+                        }`}
+                      >
+                        {provider.active ? '비활성화' : '활성화'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="pt-3 border-t border-gray-100">
+                    <p className="text-xs text-gray-400">
+                      상태:{' '}
+                      <span className={provider.active ? 'text-green-600 font-medium' : 'text-gray-500'}>
+                        {provider.active ? '활성' : '비활성'}
+                      </span>
+                      {provider.isDefault && (
+                        <span className="ml-3 text-blue-600 font-medium">기본 Provider로 설정됨</span>
+                      )}
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );

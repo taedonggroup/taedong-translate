@@ -1,46 +1,40 @@
-"use client";
+'use client';
 
-import { useState } from "react";
-import { Play, Clock, Hash, DollarSign, Loader2 } from "lucide-react";
+import { useState } from 'react';
+import { Play, Clock, Hash, DollarSign, Loader2, AlertCircle } from 'lucide-react';
 
-type TargetLang = "EN" | "JA" | "ZH";
+type TargetLang = 'en' | 'ja' | 'zh';
 
 interface TranslationResult {
+  translated: string;
   provider: string;
-  responseTime: string;
-  text: string;
-  charCount: number;
-  cost: string;
+  durationMs: number;
+  inputChars: number;
+  outputChars: number;
+  cost: number;
+  toLang: string;
+  success: boolean;
+  error?: string;
 }
 
-const MOCK_PROVIDERS = [
-  { name: "DeepL Free", baseTime: 320 },
-  { name: "Claude Haiku 4.5", baseTime: 580 },
-];
+const LANG_LABELS: Record<TargetLang, string> = {
+  en: '영어 (EN)',
+  ja: '일본어 (JA)',
+  zh: '중국어 (ZH)',
+};
 
-function getMockTranslation(
-  text: string,
-  lang: TargetLang,
-): TranslationResult[] {
-  return MOCK_PROVIDERS.map((p) => ({
-    provider: p.name,
-    responseTime: `${p.baseTime + Math.floor(Math.random() * 80)}ms`,
-    text: `[${lang}] ${text}`,
-    charCount: text.length,
-    cost: p.name.includes("Claude")
-      ? `$${(text.length * 0.000002).toFixed(5)}`
-      : "무료",
-  }));
-}
+const LANG_DISPLAY: Record<TargetLang, string> = {
+  en: 'EN',
+  ja: 'JA',
+  zh: 'ZH',
+};
 
 export default function PlaygroundPage() {
-  const [inputText, setInputText] = useState("");
-  const [selectedLangs, setSelectedLangs] = useState<TargetLang[]>(["EN"]);
+  const [inputText, setInputText] = useState('');
+  const [selectedLangs, setSelectedLangs] = useState<TargetLang[]>(['en']);
   const [loading, setLoading] = useState(false);
-  const [results, setResults] = useState<Record<
-    TargetLang,
-    TranslationResult[]
-  > | null>(null);
+  const [results, setResults] = useState<TranslationResult[] | null>(null);
+  const [apiError, setApiError] = useState<string | null>(null);
 
   const toggleLang = (lang: TargetLang) => {
     setSelectedLangs((prev) =>
@@ -48,25 +42,42 @@ export default function PlaygroundPage() {
     );
   };
 
-  const handleTranslate = () => {
+  const handleTranslate = async () => {
     if (!inputText.trim() || selectedLangs.length === 0) return;
     setLoading(true);
     setResults(null);
-    setTimeout(() => {
-      const newResults = {} as Record<TargetLang, TranslationResult[]>;
-      selectedLangs.forEach((lang) => {
-        newResults[lang] = getMockTranslation(inputText, lang);
+    setApiError(null);
+
+    try {
+      const response = await fetch('/api/playground', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: inputText, targets: selectedLangs }),
       });
-      setResults(newResults);
+
+      const data = await response.json() as { results?: TranslationResult[]; error?: string };
+
+      if (!response.ok || data.error) {
+        setApiError(data.error ?? '번역 요청에 실패했습니다.');
+        return;
+      }
+
+      setResults(data.results ?? []);
+    } catch (error) {
+      setApiError(String(error));
+    } finally {
       setLoading(false);
-    }, 500);
+    }
   };
 
-  const langLabels: Record<TargetLang, string> = {
-    EN: "영어",
-    JA: "일본어",
-    ZH: "중국어",
-  };
+  // Group results by toLang preserving selectedLangs order
+  const resultsByLang = selectedLangs.reduce<Record<TargetLang, TranslationResult | undefined>>(
+    (acc, lang) => {
+      acc[lang] = results?.find((r) => r.toLang === lang);
+      return acc;
+    },
+    {} as Record<TargetLang, TranslationResult | undefined>,
+  );
 
   return (
     <div className="min-h-screen bg-gray-50 p-8">
@@ -75,7 +86,7 @@ export default function PlaygroundPage() {
         <div className="mb-8">
           <h1 className="text-2xl font-bold text-gray-900">번역 테스트</h1>
           <p className="text-sm text-gray-500 mt-1">
-            등록된 AI 모델로 번역 결과를 즉시 비교합니다
+            등록된 AI 모델로 번역 결과를 즉시 확인합니다
           </p>
         </div>
 
@@ -92,34 +103,41 @@ export default function PlaygroundPage() {
             className="w-full text-sm text-gray-800 placeholder-gray-400 border border-gray-200 rounded-lg px-4 py-3 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
           />
 
-          {/* Character count */}
           <div className="flex items-center justify-between mt-2 mb-4">
             <span className="text-xs text-gray-400">{inputText.length}자</span>
+            {inputText.length > 5000 && (
+              <span className="text-xs text-red-500">최대 5000자</span>
+            )}
           </div>
 
           {/* Language toggles */}
           <div className="flex items-center gap-2 mb-4">
             <span className="text-sm text-gray-500 mr-1">번역 언어:</span>
-            {(["EN", "JA", "ZH"] as TargetLang[]).map((lang) => (
+            {(['en', 'ja', 'zh'] as TargetLang[]).map((lang) => (
               <button
                 key={lang}
                 onClick={() => toggleLang(lang)}
                 className={`px-3 py-1.5 text-sm font-medium rounded-lg border transition-colors ${
                   selectedLangs.includes(lang)
-                    ? "bg-blue-600 text-white border-blue-600"
-                    : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
+                    ? 'bg-blue-600 text-white border-blue-600'
+                    : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
                 }`}
               >
-                {lang}
+                {LANG_DISPLAY[lang]}
               </button>
             ))}
           </div>
 
+          {apiError && (
+            <div className="flex items-start gap-2 mb-4 bg-red-50 border border-red-100 rounded-lg px-4 py-3">
+              <AlertCircle size={15} className="text-red-500 mt-0.5 shrink-0" />
+              <p className="text-xs text-red-600">{apiError}</p>
+            </div>
+          )}
+
           <button
             onClick={handleTranslate}
-            disabled={
-              loading || !inputText.trim() || selectedLangs.length === 0
-            }
+            disabled={loading || !inputText.trim() || selectedLangs.length === 0 || inputText.length > 5000}
             className="w-full flex items-center justify-center gap-2 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {loading ? (
@@ -137,20 +155,28 @@ export default function PlaygroundPage() {
         </div>
 
         {/* Results */}
-        {results && (
+        {(results !== null || loading) && (
           <div className="flex flex-col gap-6">
-            {(
-              Object.entries(results) as [TargetLang, TranslationResult[]][]
-            ).map(([lang, providerResults]) => (
-              <div key={lang}>
-                <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
-                  {langLabels[lang]} ({lang})
-                </h2>
-                <div className="flex flex-col gap-3">
-                  {providerResults.map((result) => (
+            {selectedLangs.map((lang) => {
+              const result = resultsByLang[lang];
+              const isLoading = loading && !result;
+
+              return (
+                <div key={lang}>
+                  <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
+                    {LANG_LABELS[lang]}
+                  </h2>
+
+                  {isLoading ? (
+                    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 flex items-center gap-3">
+                      <Loader2 size={16} className="animate-spin text-blue-400" />
+                      <span className="text-sm text-gray-400">번역 중...</span>
+                    </div>
+                  ) : result ? (
                     <div
-                      key={result.provider}
-                      className="bg-white rounded-xl border border-gray-200 shadow-sm p-5"
+                      className={`bg-white rounded-xl border shadow-sm p-5 ${
+                        result.success ? 'border-gray-200' : 'border-red-100'
+                      }`}
                     >
                       <div className="flex items-center justify-between mb-3">
                         <span className="text-sm font-semibold text-gray-800">
@@ -158,27 +184,49 @@ export default function PlaygroundPage() {
                         </span>
                         <div className="flex items-center gap-1 text-xs text-gray-400">
                           <Clock size={12} />
-                          {result.responseTime}
+                          {result.durationMs}ms
                         </div>
                       </div>
-                      <p className="text-sm text-gray-700 bg-gray-50 rounded-lg px-4 py-3 mb-3 leading-relaxed">
-                        {result.text}
-                      </p>
+
+                      {result.success ? (
+                        <p className="text-sm text-gray-700 bg-gray-50 rounded-lg px-4 py-3 mb-3 leading-relaxed whitespace-pre-wrap">
+                          {result.translated}
+                        </p>
+                      ) : (
+                        <div className="bg-red-50 rounded-lg px-4 py-3 mb-3">
+                          <p className="text-xs text-red-600">{result.error ?? '번역 실패'}</p>
+                        </div>
+                      )}
+
                       <div className="flex items-center gap-4 text-xs text-gray-400">
                         <span className="flex items-center gap-1">
                           <Hash size={12} />
-                          {result.charCount}자
+                          {result.inputChars}자 입력
                         </span>
-                        <span className="flex items-center gap-1">
-                          <DollarSign size={12} />
-                          {result.cost}
-                        </span>
+                        {result.outputChars > 0 && (
+                          <span className="flex items-center gap-1">
+                            <Hash size={12} />
+                            {result.outputChars}자 출력
+                          </span>
+                        )}
+                        {result.cost > 0 && (
+                          <span className="flex items-center gap-1">
+                            <DollarSign size={12} />
+                            ${result.cost.toFixed(6)}
+                          </span>
+                        )}
+                        {result.cost === 0 && result.success && (
+                          <span className="flex items-center gap-1">
+                            <DollarSign size={12} />
+                            무료
+                          </span>
+                        )}
                       </div>
                     </div>
-                  ))}
+                  ) : null}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
