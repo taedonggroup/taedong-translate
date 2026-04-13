@@ -118,7 +118,12 @@ export async function PUT(req: NextRequest, context: RouteContext) {
         });
     }
 
-    return NextResponse.json({ ok: true, enabled: body.enabled });
+    return NextResponse.json({
+      ok: true,
+      enabled: body.enabled,
+      needsTranslation: body.enabled,
+      languageCode: language.code,
+    });
   } catch (error) {
     console.error("[PUT /api/sites/[id]/languages]", error);
     return NextResponse.json(

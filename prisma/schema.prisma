@@ -20,6 +20,20 @@ model Site {
   updatedAt DateTime @updatedAt
   logs      TranslationLog[]
   languages SiteLanguage[]
+  messages  SiteMessages[]
+}
+
+model SiteMessages {
+  id        String   @id @default(cuid())
+  siteId    String
+  locale    String
+  messages  String   @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  site Site @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@unique([siteId, locale])
 }
 
 model Language {

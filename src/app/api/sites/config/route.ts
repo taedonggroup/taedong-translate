@@ -37,6 +37,7 @@ export async function GET(request: NextRequest) {
           include: { language: true },
           orderBy: { language: { order: "asc" } },
         },
+        messages: true,
       },
     });
 
@@ -58,6 +59,15 @@ export async function GET(request: NextRequest) {
       .filter((l) => !l.isSource)
       .map((l) => l.code);
 
+    const messagesMap: Record<string, unknown> = {};
+    for (const sm of site.messages) {
+      try {
+        messagesMap[sm.locale] = JSON.parse(sm.messages);
+      } catch {
+        // Skip malformed JSON
+      }
+    }
+
     const responseBody = {
       site: {
         id: site.id,
@@ -69,6 +79,7 @@ export async function GET(request: NextRequest) {
       targetLanguages,
       defaultLocale: sourceLanguage,
       locales: languages.map((l) => l.code),
+      messages: messagesMap,
     };
 
     return NextResponse.json(responseBody, { headers: CORS_HEADERS });

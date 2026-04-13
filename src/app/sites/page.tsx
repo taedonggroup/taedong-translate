@@ -10,6 +10,7 @@ import {
   RefreshCw,
   Pencil,
   X,
+  Wand2,
 } from "lucide-react";
 
 interface SiteLanguageEntry {
@@ -309,6 +310,223 @@ function EditSiteModal({
   );
 }
 
+interface TranslationModalProps {
+  siteId: string;
+  siteDomain: string;
+  locale: string;
+  languageName: string;
+  onClose: () => void;
+  onComplete: (keyCount: number) => void;
+}
+
+function TranslationModal({
+  siteId,
+  siteDomain,
+  locale,
+  languageName,
+  onClose,
+  onComplete,
+}: TranslationModalProps) {
+  const [step, setStep] = useState<"confirm" | "generating" | "done" | "error">(
+    "confirm",
+  );
+  const [keyCount, setKeyCount] = useState(0);
+  const [errorMessage, setErrorMessage] = useState("");
+
+  const countKeys = (obj: unknown): number => {
+    if (typeof obj === "string") return 1;
+    if (Array.isArray(obj))
+      return obj.reduce((sum, v) => sum + countKeys(v), 0);
+    if (obj && typeof obj === "object")
+      return Object.values(obj).reduce(
+        (sum: number, v) => sum + countKeys(v),
+        0,
+      );
+    return 0;
+  };
+
+  const runGeneration = async () => {
+    setStep("generating");
+    try {
+      // 1. Try to fetch ko.json from the site
+      let sourceMessages: unknown = null;
+      try {
+        const fetchRes = await fetch(`https://${siteDomain}/messages/ko.json`, {
+          signal: AbortSignal.timeout(8000),
+        });
+        if (fetchRes.ok) {
+          sourceMessages = await fetchRes.json();
+        }
+      } catch {
+        // Site ko.json not reachable — fall through to null
+      }
+
+      if (!sourceMessages) {
+        setErrorMessage(
+          `${siteDomain}/messages/ko.json 에서 소스 메시지를 가져올 수 없습니다. 사이트가 해당 경로로 ko.json을 제공하는지 확인하세요.`,
+        );
+        setStep("error");
+        return;
+      }
+
+      // 2. Call generate endpoint
+      const genRes = await fetch(`/api/sites/${siteId}/generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ locale, sourceMessages }),
+      });
+      const genData = (await genRes.json()) as {
+        messages?: unknown;
+        error?: string;
+      };
+      if (!genRes.ok) {
+        setErrorMessage(genData.error ?? "번역 생성에 실패했습니다.");
+        setStep("error");
+        return;
+      }
+
+      // 3. Save generated messages
+      const saveRes = await fetch(`/api/sites/${siteId}/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ locale, messages: genData.messages }),
+      });
+      if (!saveRes.ok) {
+        setErrorMessage("번역 저장에 실패했습니다.");
+        setStep("error");
+        return;
+      }
+
+      const totalKeys = countKeys(genData.messages);
+      setKeyCount(totalKeys);
+      setStep("done");
+      onComplete(totalKeys);
+    } catch (err) {
+      setErrorMessage(
+        err instanceof Error ? err.message : "알 수 없는 오류가 발생했습니다.",
+      );
+      setStep("error");
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 p-6">
+        <div className="flex items-center justify-between mb-5">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-violet-50 rounded-lg flex items-center justify-center">
+              <Wand2 size={16} className="text-violet-500" />
+            </div>
+            <h2 className="text-lg font-semibold text-gray-900">
+              번역 자동 생성
+            </h2>
+          </div>
+          {step !== "generating" && (
+            <button
+              onClick={onClose}
+              className="text-gray-400 hover:text-gray-600"
+            >
+              <X size={20} />
+            </button>
+          )}
+        </div>
+
+        {step === "confirm" && (
+          <div className="space-y-4">
+            <p className="text-sm text-gray-600">
+              <span className="font-medium text-gray-900">{languageName}</span>{" "}
+              ({locale}) 번역을 자동으로 생성하시겠습니까?
+            </p>
+            <div className="bg-gray-50 rounded-lg p-3 text-xs text-gray-500 space-y-1">
+              <p>
+                1.{" "}
+                <code className="text-gray-700">
+                  {siteDomain}/messages/ko.json
+                </code>{" "}
+                에서 소스 메시지를 가져옵니다.
+              </p>
+              <p>2. 설정된 번역 프로바이더로 모든 키를 번역합니다.</p>
+              <p>3. 결과를 플랫폼에 저장합니다 (Config API로 제공됩니다).</p>
+            </div>
+            <div className="flex gap-2 pt-1">
+              <button
+                onClick={onClose}
+                className="flex-1 px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                나중에
+              </button>
+              <button
+                onClick={runGeneration}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-violet-600 text-white text-sm font-medium rounded-lg hover:bg-violet-700 transition-colors"
+              >
+                <Wand2 size={14} />
+                생성
+              </button>
+            </div>
+          </div>
+        )}
+
+        {step === "generating" && (
+          <div className="flex flex-col items-center gap-4 py-6">
+            <Loader2 size={32} className="animate-spin text-violet-500" />
+            <div className="text-center">
+              <p className="text-sm font-medium text-gray-800">
+                번역 생성 중...
+              </p>
+              <p className="text-xs text-gray-400 mt-1">
+                소스 메시지를 번역하고 있습니다. 잠시 기다려 주세요.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {step === "done" && (
+          <div className="space-y-4">
+            <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-center">
+              <p className="text-sm font-medium text-green-800">
+                번역 생성 완료!
+              </p>
+              <p className="text-xs text-green-700 mt-1">
+                {keyCount}개 키가 {languageName}({locale})으로 번역되어
+                저장되었습니다.
+              </p>
+            </div>
+            <button
+              onClick={onClose}
+              className="w-full px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors"
+            >
+              확인
+            </button>
+          </div>
+        )}
+
+        {step === "error" && (
+          <div className="space-y-4">
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+              <p className="text-sm font-medium text-red-800">번역 생성 실패</p>
+              <p className="text-xs text-red-700 mt-1">{errorMessage}</p>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={onClose}
+                className="flex-1 px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                닫기
+              </button>
+              <button
+                onClick={() => setStep("confirm")}
+                className="flex-1 px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 transition-colors"
+              >
+                다시 시도
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 interface LanguageChip {
   id: string;
   code: string;
@@ -319,12 +537,16 @@ interface LanguageChip {
 
 function LanguageChips({
   siteId,
+  siteDomain,
   chips,
   onToggle,
+  onRequestTranslation,
 }: {
   siteId: string;
+  siteDomain: string;
   chips: LanguageChip[];
   onToggle: (languageId: string, enabled: boolean) => void;
+  onRequestTranslation: (chip: LanguageChip) => void;
 }) {
   const [pending, setPending] = useState<string | null>(null);
 
@@ -338,13 +560,22 @@ function LanguageChips({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ languageId: chip.id, enabled: newEnabled }),
       });
+      const data = (await res.json()) as {
+        needsTranslation?: boolean;
+        languageCode?: string;
+      };
       if (res.ok) {
         onToggle(chip.id, newEnabled);
+        if (newEnabled && data.needsTranslation) {
+          onRequestTranslation(chip);
+        }
       }
     } finally {
       setPending(null);
     }
   };
+
+  void siteDomain; // passed through to parent via onRequestTranslation
 
   return (
     <div className="flex flex-wrap gap-1.5">
@@ -415,6 +646,8 @@ function SiteCard({
   const [showEdit, setShowEdit] = useState(false);
   const [allLanguages, setAllLanguages] = useState<LanguageChip[]>([]);
   const [loadingLangs, setLoadingLangs] = useState(false);
+  const [translationTarget, setTranslationTarget] =
+    useState<LanguageChip | null>(null);
 
   // Build chip list from site.languages (enabled IDs) + fetch all languages once
   useEffect(() => {
@@ -467,10 +700,31 @@ function SiteCard({
         chip.id === languageId ? { ...chip, enabled } : chip,
       ),
     );
-    onToast(
-      enabled ? "언어가 활성화되었습니다." : "언어가 비활성화되었습니다.",
-      "success",
-    );
+    if (!enabled) {
+      onToast("언어가 비활성화되었습니다.", "success");
+    }
+    // When enabled, toast is shown after translation modal closes
+  };
+
+  const handleRequestTranslation = (chip: LanguageChip) => {
+    setTranslationTarget(chip);
+  };
+
+  const handleTranslationComplete = (keyCount: number) => {
+    if (translationTarget) {
+      onToast(
+        `${translationTarget.name} 번역 완료! (${keyCount}개 키)`,
+        "success",
+      );
+    }
+    setTranslationTarget(null);
+  };
+
+  const handleTranslationModalClose = () => {
+    if (translationTarget) {
+      onToast(`${translationTarget.name} 언어가 활성화되었습니다.`, "success");
+    }
+    setTranslationTarget(null);
   };
 
   const handleCopy = () => {
@@ -543,6 +797,16 @@ function SiteCard({
             onUpdated(updated);
             onToast("사이트가 수정되었습니다.", "success");
           }}
+        />
+      )}
+      {translationTarget && (
+        <TranslationModal
+          siteId={site.id}
+          siteDomain={site.domain}
+          locale={translationTarget.code}
+          languageName={translationTarget.name}
+          onClose={handleTranslationModalClose}
+          onComplete={handleTranslationComplete}
         />
       )}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
@@ -652,8 +916,10 @@ function SiteCard({
           ) : allLanguages.length > 0 ? (
             <LanguageChips
               siteId={site.id}
+              siteDomain={site.domain}
               chips={allLanguages}
               onToggle={handleLanguageToggle}
+              onRequestTranslation={handleRequestTranslation}
             />
           ) : (
             <p className="text-xs text-gray-400">언어 없음</p>
