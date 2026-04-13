@@ -332,6 +332,36 @@ function TranslationModal({
   );
   const [keyCount, setKeyCount] = useState(0);
   const [errorMessage, setErrorMessage] = useState("");
+  const [bulkTranslating, setBulkTranslating] = useState(false);
+  const [bulkResult, setBulkResult] = useState<string | null>(null);
+
+  const handleBulkTranslate = async () => {
+    setBulkTranslating(true);
+    setBulkResult(null);
+    try {
+      const res = await fetch(`/api/sites/${siteId}/bulk-translate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const data = (await res.json()) as {
+        success?: boolean;
+        totalTranslations?: number;
+        error?: string;
+      };
+      if (!res.ok || !data.success) {
+        setBulkResult(`오류: ${data.error ?? "DB 번역 실패"}`);
+      } else {
+        setBulkResult(`완료! ${data.totalTranslations ?? 0}개 필드 번역됨`);
+      }
+    } catch (err) {
+      setBulkResult(
+        `오류: ${err instanceof Error ? err.message : "알 수 없는 오류"}`,
+      );
+    } finally {
+      setBulkTranslating(false);
+    }
+  };
 
   const countKeys = (obj: unknown): number => {
     if (typeof obj === "string") return 1;
@@ -491,6 +521,30 @@ function TranslationModal({
                 저장되었습니다.
               </p>
             </div>
+            {/* Secondary action: bulk translate DB content */}
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 space-y-2">
+              <p className="text-xs text-blue-700">
+                이 사이트의 DB 콘텐츠(미번역 항목)도 함께 번역하시겠습니까?
+              </p>
+              {bulkResult ? (
+                <p
+                  className={`text-xs font-medium ${bulkResult.startsWith("오류") ? "text-red-600" : "text-blue-800"}`}
+                >
+                  {bulkResult}
+                </p>
+              ) : (
+                <button
+                  onClick={handleBulkTranslate}
+                  disabled={bulkTranslating}
+                  className="flex items-center gap-1.5 text-xs px-3 py-1.5 border border-blue-300 text-blue-600 rounded-lg hover:bg-blue-100 disabled:opacity-50 transition-colors"
+                >
+                  {bulkTranslating ? (
+                    <Loader2 size={12} className="animate-spin" />
+                  ) : null}
+                  {bulkTranslating ? "번역 중..." : "DB 콘텐츠 번역"}
+                </button>
+              )}
+            </div>
             <button
               onClick={onClose}
               className="w-full px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors"
@@ -646,6 +700,10 @@ function SiteCard({
   const [showEdit, setShowEdit] = useState(false);
   const [allLanguages, setAllLanguages] = useState<LanguageChip[]>([]);
   const [loadingLangs, setLoadingLangs] = useState(false);
+  const [bulkTranslating, setBulkTranslating] = useState(false);
+  const [bulkTranslateResult, setBulkTranslateResult] = useState<string | null>(
+    null,
+  );
   const [translationTarget, setTranslationTarget] =
     useState<LanguageChip | null>(null);
 
@@ -725,6 +783,45 @@ function SiteCard({
       onToast(`${translationTarget.name} 언어가 활성화되었습니다.`, "success");
     }
     setTranslationTarget(null);
+  };
+
+  const handleBulkTranslate = async () => {
+    if (
+      !confirm(
+        "이 사이트의 전체 DB 콘텐츠를 번역하시겠습니까? (미번역 항목만 처리)",
+      )
+    )
+      return;
+    setBulkTranslating(true);
+    setBulkTranslateResult(null);
+    try {
+      const res = await fetch(`/api/sites/${site.id}/bulk-translate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const data = (await res.json()) as {
+        success?: boolean;
+        totalTranslations?: number;
+        error?: string;
+      };
+      if (!res.ok || !data.success) {
+        const msg = data.error ?? "DB 번역 실패";
+        setBulkTranslateResult(`오류: ${msg}`);
+        onToast(msg, "error");
+      } else {
+        const msg = `완료! ${data.totalTranslations ?? 0}개 필드 번역됨`;
+        setBulkTranslateResult(msg);
+        onToast(msg, "success");
+      }
+    } catch (err) {
+      const msg =
+        err instanceof Error ? err.message : "네트워크 오류가 발생했습니다.";
+      setBulkTranslateResult(`오류: ${msg}`);
+      onToast(msg, "error");
+    } finally {
+      setBulkTranslating(false);
+    }
   };
 
   const handleCopy = () => {
@@ -924,6 +1021,29 @@ function SiteCard({
           ) : (
             <p className="text-xs text-gray-400">언어 없음</p>
           )}
+        </div>
+
+        {/* DB content bulk translate */}
+        <div className="mt-3 pt-3 border-t border-gray-100 flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            {bulkTranslateResult && (
+              <p
+                className={`text-xs ${bulkTranslateResult.startsWith("오류") ? "text-red-500" : "text-green-600"}`}
+              >
+                {bulkTranslateResult}
+              </p>
+            )}
+          </div>
+          <button
+            onClick={handleBulkTranslate}
+            disabled={bulkTranslating}
+            className="flex-shrink-0 flex items-center gap-1.5 text-sm px-3 py-1.5 border border-blue-300 text-blue-600 rounded-lg hover:bg-blue-50 disabled:opacity-50 transition-colors"
+          >
+            {bulkTranslating ? (
+              <Loader2 size={13} className="animate-spin" />
+            ) : null}
+            {bulkTranslating ? "번역 중..." : "DB 콘텐츠 번역"}
+          </button>
         </div>
       </div>
     </>
