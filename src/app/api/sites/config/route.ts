@@ -80,6 +80,11 @@ export async function GET(request: NextRequest) {
       defaultLocale: sourceLanguage,
       locales: languages.map((l) => l.code),
       messages: messagesMap,
+      sdk: {
+        widgetPosition: "bottom-right",
+        widgetEnabled: true,
+        primaryColor: "#f97316",
+      },
     };
 
     return NextResponse.json(responseBody, { headers: CORS_HEADERS });

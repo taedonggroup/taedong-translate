@@ -11,6 +11,7 @@ import {
   Pencil,
   X,
   Wand2,
+  Code2,
 } from "lucide-react";
 
 interface SiteLanguageEntry {
@@ -71,6 +72,8 @@ function AddSiteModal({
   const [error, setError] = useState("");
   const [createdSite, setCreatedSite] = useState<Site | null>(null);
   const [copied, setCopied] = useState(false);
+  const [snippet, setSnippet] = useState<string | null>(null);
+  const [snippetCopied, setSnippetCopied] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -89,6 +92,14 @@ function AddSiteModal({
       }
       setCreatedSite(data.site!);
       onCreated(data.site!);
+      // Fetch script snippet for immediate display
+      try {
+        const snippetRes = await fetch(`/api/sites/${data.site!.id}/snippet`);
+        const snippetData = (await snippetRes.json()) as { snippet?: string };
+        if (snippetData.snippet) setSnippet(snippetData.snippet);
+      } catch {
+        // Non-critical — snippet shown on demand via SiteCard
+      }
     } catch {
       setError("네트워크 오류가 발생했습니다.");
     } finally {
@@ -101,6 +112,13 @@ function AddSiteModal({
     navigator.clipboard.writeText(createdSite.apiKey);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleSnippetCopy = () => {
+    if (!snippet) return;
+    navigator.clipboard.writeText(snippet);
+    setSnippetCopied(true);
+    setTimeout(() => setSnippetCopied(false), 2000);
   };
 
   return (
@@ -147,6 +165,34 @@ function AddSiteModal({
                 </button>
               </div>
             </div>
+            {snippet && (
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">
+                  스크립트 태그
+                </label>
+                <p className="text-xs text-gray-400 mb-2">
+                  이 코드를 웹사이트의{" "}
+                  <code className="bg-gray-100 px-1 rounded">&lt;head&gt;</code>{" "}
+                  태그 안에 붙여넣으세요.
+                </p>
+                <div className="relative">
+                  <pre className="bg-gray-900 text-green-400 text-xs rounded-lg px-3 py-2.5 overflow-x-auto whitespace-pre-wrap break-all font-mono leading-relaxed pr-10">
+                    {snippet}
+                  </pre>
+                  <button
+                    onClick={handleSnippetCopy}
+                    className="absolute top-1.5 right-1.5 p-1.5 rounded-md bg-gray-700 hover:bg-gray-600 transition-colors"
+                    title="복사"
+                  >
+                    {snippetCopied ? (
+                      <Check size={12} className="text-green-400" />
+                    ) : (
+                      <Copy size={12} className="text-gray-300" />
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
             <button
               onClick={onClose}
               className="w-full px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
@@ -305,6 +351,114 @@ function EditSiteModal({
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+}
+
+function SnippetModal({
+  siteId,
+  siteName,
+  onClose,
+}: {
+  siteId: string;
+  siteName: string;
+  onClose: () => void;
+}) {
+  const [snippet, setSnippet] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    fetch(`/api/sites/${siteId}/snippet`)
+      .then((r) => r.json())
+      .then((data: { snippet?: string }) => {
+        if (data.snippet) setSnippet(data.snippet);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [siteId]);
+
+  const handleCopy = () => {
+    if (!snippet) return;
+    navigator.clipboard.writeText(snippet);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg mx-4 p-6">
+        <div className="flex items-center justify-between mb-5">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-orange-50 rounded-lg flex items-center justify-center">
+              <Code2 size={16} className="text-orange-500" />
+            </div>
+            <h2 className="text-lg font-semibold text-gray-900">
+              스크립트 태그
+            </h2>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        <p className="text-sm text-gray-600 mb-4">
+          <span className="font-medium text-gray-900">{siteName}</span> 사이트에
+          SDK를 연결하려면 아래 코드를 웹사이트의{" "}
+          <code className="text-xs bg-gray-100 px-1 py-0.5 rounded">
+            &lt;head&gt;
+          </code>{" "}
+          태그 안에 붙여넣으세요.
+        </p>
+
+        {loading ? (
+          <div className="flex items-center justify-center h-16">
+            <Loader2 size={20} className="animate-spin text-gray-300" />
+          </div>
+        ) : snippet ? (
+          <div className="space-y-3">
+            <div className="relative">
+              <pre className="bg-gray-900 text-green-400 text-xs rounded-lg px-4 py-3 overflow-x-auto whitespace-pre-wrap break-all font-mono leading-relaxed">
+                {snippet}
+              </pre>
+              <button
+                onClick={handleCopy}
+                className="absolute top-2 right-2 p-1.5 rounded-md bg-gray-700 hover:bg-gray-600 transition-colors"
+                title="복사"
+              >
+                {copied ? (
+                  <Check size={13} className="text-green-400" />
+                ) : (
+                  <Copy size={13} className="text-gray-300" />
+                )}
+              </button>
+            </div>
+            <div className="bg-orange-50 border border-orange-200 rounded-lg px-4 py-3 text-xs text-orange-700 space-y-1">
+              <p className="font-medium">설치 안내</p>
+              <p>
+                이 코드를 웹사이트의{" "}
+                <code className="bg-orange-100 px-1 rounded">&lt;head&gt;</code>{" "}
+                태그 안에 붙여넣으세요.
+              </p>
+              <p>스크립트가 로드되면 번역 위젯이 자동으로 활성화됩니다.</p>
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-red-600">
+            스크립트 태그를 불러올 수 없습니다.
+          </p>
+        )}
+
+        <button
+          onClick={onClose}
+          className="mt-5 w-full px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+        >
+          닫기
+        </button>
       </div>
     </div>
   );
@@ -706,6 +860,7 @@ function SiteCard({
   );
   const [translationTarget, setTranslationTarget] =
     useState<LanguageChip | null>(null);
+  const [showSnippet, setShowSnippet] = useState(false);
 
   // Build chip list from site.languages (enabled IDs) + fetch all languages once
   useEffect(() => {
@@ -906,6 +1061,13 @@ function SiteCard({
           onComplete={handleTranslationComplete}
         />
       )}
+      {showSnippet && (
+        <SnippetModal
+          siteId={site.id}
+          siteName={site.name}
+          onClose={() => setShowSnippet(false)}
+        />
+      )}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-3 min-w-0">
@@ -945,6 +1107,13 @@ function SiteCard({
           </div>
 
           <div className="flex gap-2 flex-shrink-0 ml-4">
+            <button
+              onClick={() => setShowSnippet(true)}
+              className="flex items-center gap-1 px-3 py-1.5 text-sm text-orange-600 border border-orange-200 rounded-lg hover:bg-orange-50 transition-colors"
+            >
+              <Code2 size={13} />
+              스크립트 태그
+            </button>
             <button
               onClick={() => setShowEdit(true)}
               className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
