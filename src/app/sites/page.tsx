@@ -12,6 +12,8 @@ import {
   X,
   Wand2,
   Code2,
+  Zap,
+  Search,
 } from "lucide-react";
 
 interface SiteLanguageEntry {
@@ -74,6 +76,7 @@ function AddSiteModal({
   const [copied, setCopied] = useState(false);
   const [snippet, setSnippet] = useState<string | null>(null);
   const [snippetCopied, setSnippetCopied] = useState(false);
+  const [showAutoSetup, setShowAutoSetup] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -122,136 +125,163 @@ function AddSiteModal({
   };
 
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 p-6">
-        <div className="flex items-center justify-between mb-5">
-          <h2 className="text-lg font-semibold text-gray-900">사이트 추가</h2>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600"
-          >
-            <X size={20} />
-          </button>
-        </div>
+    <>
+      {showAutoSetup && createdSite && (
+        <AutoSetupModal
+          siteId={createdSite.id}
+          siteName={createdSite.name}
+          onClose={() => {
+            setShowAutoSetup(false);
+            onClose();
+          }}
+          onComplete={() => {
+            setShowAutoSetup(false);
+            onClose();
+          }}
+        />
+      )}
+      <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40">
+        <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 p-6">
+          <div className="flex items-center justify-between mb-5">
+            <h2 className="text-lg font-semibold text-gray-900">사이트 추가</h2>
+            <button
+              onClick={onClose}
+              className="text-gray-400 hover:text-gray-600"
+            >
+              <X size={20} />
+            </button>
+          </div>
 
-        {createdSite ? (
-          <div className="space-y-4">
-            <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-              <p className="text-sm font-medium text-green-800 mb-1">
-                사이트가 생성되었습니다!
-              </p>
-              <p className="text-xs text-green-700">
-                아래 API 키를 지금 복사해 두세요. 다시 표시되지 않을 수
-                있습니다.
-              </p>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">
-                API 키
-              </label>
-              <div className="flex items-center gap-2">
-                <code className="flex-1 text-xs bg-gray-100 rounded-lg px-3 py-2 font-mono break-all text-gray-800">
-                  {createdSite.apiKey}
-                </code>
-                <button
-                  onClick={handleCopy}
-                  className="flex-shrink-0 p-2 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors"
-                >
-                  {copied ? (
-                    <Check size={16} className="text-green-500" />
-                  ) : (
-                    <Copy size={16} className="text-gray-500" />
-                  )}
-                </button>
+          {createdSite ? (
+            <div className="space-y-4">
+              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                <p className="text-sm font-medium text-green-800 mb-1">
+                  사이트가 생성되었습니다!
+                </p>
+                <p className="text-xs text-green-700">
+                  아래 API 키를 지금 복사해 두세요. 다시 표시되지 않을 수
+                  있습니다.
+                </p>
               </div>
-            </div>
-            {snippet && (
               <div>
                 <label className="block text-xs font-medium text-gray-500 mb-1">
-                  스크립트 태그
+                  API 키
                 </label>
-                <p className="text-xs text-gray-400 mb-2">
-                  이 코드를 웹사이트의{" "}
-                  <code className="bg-gray-100 px-1 rounded">&lt;head&gt;</code>{" "}
-                  태그 안에 붙여넣으세요.
-                </p>
-                <div className="relative">
-                  <pre className="bg-gray-900 text-green-400 text-xs rounded-lg px-3 py-2.5 overflow-x-auto whitespace-pre-wrap break-all font-mono leading-relaxed pr-10">
-                    {snippet}
-                  </pre>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 text-xs bg-gray-100 rounded-lg px-3 py-2 font-mono break-all text-gray-800">
+                    {createdSite.apiKey}
+                  </code>
                   <button
-                    onClick={handleSnippetCopy}
-                    className="absolute top-1.5 right-1.5 p-1.5 rounded-md bg-gray-700 hover:bg-gray-600 transition-colors"
-                    title="복사"
+                    onClick={handleCopy}
+                    className="flex-shrink-0 p-2 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors"
                   >
-                    {snippetCopied ? (
-                      <Check size={12} className="text-green-400" />
+                    {copied ? (
+                      <Check size={16} className="text-green-500" />
                     ) : (
-                      <Copy size={12} className="text-gray-300" />
+                      <Copy size={16} className="text-gray-500" />
                     )}
                   </button>
                 </div>
               </div>
-            )}
-            <button
-              onClick={onClose}
-              className="w-full px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              완료
-            </button>
-          </div>
-        ) : (
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                사이트 이름
-              </label>
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="서린실업"
-                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                required
-              />
+              {snippet && (
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">
+                    스크립트 태그
+                  </label>
+                  <p className="text-xs text-gray-400 mb-2">
+                    이 코드를 웹사이트의{" "}
+                    <code className="bg-gray-100 px-1 rounded">
+                      &lt;head&gt;
+                    </code>{" "}
+                    태그 안에 붙여넣으세요.
+                  </p>
+                  <div className="relative">
+                    <pre className="bg-gray-900 text-green-400 text-xs rounded-lg px-3 py-2.5 overflow-x-auto whitespace-pre-wrap break-all font-mono leading-relaxed pr-10">
+                      {snippet}
+                    </pre>
+                    <button
+                      onClick={handleSnippetCopy}
+                      className="absolute top-1.5 right-1.5 p-1.5 rounded-md bg-gray-700 hover:bg-gray-600 transition-colors"
+                      title="복사"
+                    >
+                      {snippetCopied ? (
+                        <Check size={12} className="text-green-400" />
+                      ) : (
+                        <Copy size={12} className="text-gray-300" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+              )}
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setShowAutoSetup(true)}
+                  className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors"
+                >
+                  <Zap size={14} />
+                  원클릭 셋업 시작
+                </button>
+                <button
+                  onClick={onClose}
+                  className="flex-1 px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  나중에
+                </button>
+              </div>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                도메인
-              </label>
-              <input
-                type="text"
-                value={domain}
-                onChange={(e) => setDomain(e.target.value)}
-                placeholder="seolin-website.vercel.app"
-                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                required
-              />
-            </div>
-            {error && <p className="text-xs text-red-600">{error}</p>}
-            <div className="flex gap-2 pt-1">
-              <button
-                type="button"
-                onClick={onClose}
-                className="flex-1 px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
-              >
-                취소
-              </button>
-              <button
-                type="submit"
-                disabled={submitting}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-60 transition-colors"
-              >
-                {submitting ? (
-                  <Loader2 size={14} className="animate-spin" />
-                ) : null}
-                생성
-              </button>
-            </div>
-          </form>
-        )}
+          ) : (
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  사이트 이름
+                </label>
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="서린실업"
+                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  도메인
+                </label>
+                <input
+                  type="text"
+                  value={domain}
+                  onChange={(e) => setDomain(e.target.value)}
+                  placeholder="seolin-website.vercel.app"
+                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  required
+                />
+              </div>
+              {error && <p className="text-xs text-red-600">{error}</p>}
+              <div className="flex gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="flex-1 px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  취소
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-60 transition-colors"
+                >
+                  {submitting ? (
+                    <Loader2 size={14} className="animate-spin" />
+                  ) : null}
+                  생성
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
       </div>
-    </div>
+    </>
   );
 }
 
@@ -735,6 +765,403 @@ function TranslationModal({
   );
 }
 
+// ─── AutoSetup Modal ────────────────────────────────────────────────────────
+
+type AutoSetupStep =
+  | "crawling"
+  | "translating_en"
+  | "translating_ja"
+  | "done"
+  | "error";
+
+interface AutoSetupResult {
+  pagesScanned: number;
+  keysFound: number;
+  languagesGenerated: string[];
+}
+
+function AutoSetupModal({
+  siteId,
+  siteName,
+  onClose,
+  onComplete,
+}: {
+  siteId: string;
+  siteName: string;
+  onClose: () => void;
+  onComplete: (result: AutoSetupResult) => void;
+}) {
+  const [step, setStep] = useState<AutoSetupStep>("crawling");
+  const [result, setResult] = useState<AutoSetupResult | null>(null);
+  const [errorMessage, setErrorMessage] = useState("");
+  const [partialErrors, setPartialErrors] = useState<string[]>([]);
+
+  useEffect(() => {
+    runPipeline();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const runPipeline = async () => {
+    // Step 1: Crawl
+    setStep("crawling");
+    let crawlData: {
+      pagesScanned?: number;
+      keysFound?: number;
+      error?: string;
+    } = {};
+    try {
+      const crawlRes = await fetch(`/api/sites/${siteId}/crawl`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      crawlData = (await crawlRes.json()) as typeof crawlData;
+      if (!crawlRes.ok) {
+        setErrorMessage(crawlData.error ?? "크롤링에 실패했습니다.");
+        setStep("error");
+        return;
+      }
+    } catch (err) {
+      setErrorMessage(
+        err instanceof Error
+          ? err.message
+          : "크롤링 중 네트워크 오류가 발생했습니다.",
+      );
+      setStep("error");
+      return;
+    }
+
+    const pagesScanned = crawlData.pagesScanned ?? 0;
+    const keysFound = crawlData.keysFound ?? 0;
+
+    // Step 2: Auto-setup (generates all translations)
+    setStep("translating_en");
+    const languagesGenerated: string[] = [];
+    const errors: string[] = [];
+
+    try {
+      // Show EN progress first
+      const setupRes = await fetch(`/api/sites/${siteId}/auto-setup`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      const setupData = (await setupRes.json()) as {
+        success?: boolean;
+        languages?: Array<{
+          code: string;
+          name: string;
+          keyCount?: number;
+          error?: string;
+        }>;
+        error?: string;
+      };
+
+      if (!setupRes.ok) {
+        setErrorMessage(setupData.error ?? "번역 생성에 실패했습니다.");
+        setStep("error");
+        return;
+      }
+
+      // Animate through language steps
+      if (setupData.languages) {
+        for (const lang of setupData.languages) {
+          if (lang.code === "en") setStep("translating_en");
+          else if (lang.code === "ja") setStep("translating_ja");
+
+          if (lang.error) {
+            errors.push(`${lang.name}: ${lang.error}`);
+          } else {
+            languagesGenerated.push(lang.name);
+          }
+
+          // Brief pause to show step transition visually
+          await new Promise((r) => setTimeout(r, 600));
+        }
+      }
+    } catch (err) {
+      errors.push(
+        err instanceof Error
+          ? err.message
+          : "번역 생성 중 오류가 발생했습니다.",
+      );
+    }
+
+    if (errors.length > 0) {
+      setPartialErrors(errors);
+    }
+
+    const finalResult: AutoSetupResult = {
+      pagesScanned,
+      keysFound,
+      languagesGenerated,
+    };
+    setResult(finalResult);
+    setStep("done");
+    onComplete(finalResult);
+  };
+
+  const stepLabels: Record<AutoSetupStep, string> = {
+    crawling: "크롤링 중...",
+    translating_en: "번역 생성 중 (EN)...",
+    translating_ja: "번역 생성 중 (JA)...",
+    done: "완료!",
+    error: "오류 발생",
+  };
+
+  const stepOrder: AutoSetupStep[] = [
+    "crawling",
+    "translating_en",
+    "translating_ja",
+    "done",
+  ];
+  const currentStepIndex = stepOrder.indexOf(step);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 p-6">
+        <div className="flex items-center justify-between mb-5">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-green-50 rounded-lg flex items-center justify-center">
+              <Zap size={16} className="text-green-600" />
+            </div>
+            <h2 className="text-lg font-semibold text-gray-900">원클릭 셋업</h2>
+          </div>
+          {(step === "done" || step === "error") && (
+            <button
+              onClick={onClose}
+              className="text-gray-400 hover:text-gray-600"
+            >
+              <X size={20} />
+            </button>
+          )}
+        </div>
+
+        <p className="text-sm text-gray-500 mb-5">
+          <span className="font-medium text-gray-800">{siteName}</span>
+        </p>
+
+        {/* Progress steps */}
+        {step !== "error" && (
+          <div className="space-y-2 mb-6">
+            {stepOrder.slice(0, -1).map((s, i) => {
+              const isDone = currentStepIndex > i;
+              const isActive = currentStepIndex === i;
+              return (
+                <div
+                  key={s}
+                  className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
+                    isActive
+                      ? "bg-green-50 text-green-700 font-medium"
+                      : isDone
+                        ? "text-gray-400"
+                        : "text-gray-300"
+                  }`}
+                >
+                  {isActive ? (
+                    <Loader2
+                      size={14}
+                      className="animate-spin text-green-600"
+                    />
+                  ) : isDone ? (
+                    <Check size={14} className="text-green-500" />
+                  ) : (
+                    <span className="w-3.5 h-3.5 rounded-full border-2 border-gray-200 inline-block" />
+                  )}
+                  {stepLabels[s]}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Done state */}
+        {step === "done" && result && (
+          <div className="space-y-3">
+            <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+              <p className="text-sm font-semibold text-green-800 mb-2">
+                셋업 완료!
+              </p>
+              <div className="space-y-1 text-xs text-green-700">
+                <p>
+                  페이지 스캔:{" "}
+                  <span className="font-medium">{result.pagesScanned}개</span>
+                </p>
+                <p>
+                  추출된 키:{" "}
+                  <span className="font-medium">{result.keysFound}개</span>
+                </p>
+                <p>
+                  생성된 언어:{" "}
+                  <span className="font-medium">
+                    {result.languagesGenerated.length > 0
+                      ? result.languagesGenerated.join(", ")
+                      : "없음"}
+                  </span>
+                </p>
+              </div>
+            </div>
+            {partialErrors.length > 0 && (
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                <p className="text-xs font-medium text-yellow-800 mb-1">
+                  일부 언어 오류
+                </p>
+                {partialErrors.map((e, i) => (
+                  <p key={i} className="text-xs text-yellow-700">
+                    {e}
+                  </p>
+                ))}
+              </div>
+            )}
+            <button
+              onClick={onClose}
+              className="w-full px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors"
+            >
+              확인
+            </button>
+          </div>
+        )}
+
+        {/* Error state */}
+        {step === "error" && (
+          <div className="space-y-3">
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+              <p className="text-sm font-medium text-red-800">셋업 실패</p>
+              <p className="text-xs text-red-700 mt-1">{errorMessage}</p>
+            </div>
+            <button
+              onClick={onClose}
+              className="w-full px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+            >
+              닫기
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── CrawlOnly Modal ─────────────────────────────────────────────────────────
+
+function CrawlOnlyModal({
+  siteId,
+  siteName,
+  onClose,
+  onComplete,
+}: {
+  siteId: string;
+  siteName: string;
+  onClose: () => void;
+  onComplete: (keysFound: number) => void;
+}) {
+  const [crawling, setCrawling] = useState(true);
+  const [keysFound, setKeysFound] = useState<number | null>(null);
+  const [errorMessage, setErrorMessage] = useState("");
+
+  useEffect(() => {
+    runCrawl();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const runCrawl = async () => {
+    setCrawling(true);
+    try {
+      const res = await fetch(`/api/sites/${siteId}/crawl`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      const data = (await res.json()) as {
+        keysFound?: number;
+        pagesScanned?: number;
+        error?: string;
+      };
+      if (!res.ok) {
+        setErrorMessage(data.error ?? "크롤링에 실패했습니다.");
+      } else {
+        const found = data.keysFound ?? 0;
+        setKeysFound(found);
+        onComplete(found);
+      }
+    } catch (err) {
+      setErrorMessage(
+        err instanceof Error ? err.message : "네트워크 오류가 발생했습니다.",
+      );
+    } finally {
+      setCrawling(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-sm mx-4 p-6">
+        <div className="flex items-center justify-between mb-5">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-blue-50 rounded-lg flex items-center justify-center">
+              <Search size={16} className="text-blue-600" />
+            </div>
+            <h2 className="text-lg font-semibold text-gray-900">크롤링</h2>
+          </div>
+          {!crawling && (
+            <button
+              onClick={onClose}
+              className="text-gray-400 hover:text-gray-600"
+            >
+              <X size={20} />
+            </button>
+          )}
+        </div>
+
+        <p className="text-sm text-gray-500 mb-5">
+          <span className="font-medium text-gray-800">{siteName}</span>
+        </p>
+
+        {crawling && (
+          <div className="flex flex-col items-center gap-3 py-6">
+            <Loader2 size={28} className="animate-spin text-blue-500" />
+            <p className="text-sm text-gray-600">
+              한국어 텍스트를 추출하는 중...
+            </p>
+          </div>
+        )}
+
+        {!crawling && keysFound !== null && (
+          <div className="space-y-3">
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-center">
+              <p className="text-sm font-semibold text-blue-800">크롤링 완료</p>
+              <p className="text-2xl font-bold text-blue-600 mt-1">
+                {keysFound}
+              </p>
+              <p className="text-xs text-blue-600">개의 텍스트 추출됨</p>
+            </div>
+            <button
+              onClick={onClose}
+              className="w-full px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              확인
+            </button>
+          </div>
+        )}
+
+        {!crawling && errorMessage && (
+          <div className="space-y-3">
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+              <p className="text-sm font-medium text-red-800">크롤링 실패</p>
+              <p className="text-xs text-red-700 mt-1">{errorMessage}</p>
+            </div>
+            <button
+              onClick={onClose}
+              className="w-full px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+            >
+              닫기
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Language Chips ───────────────────────────────────────────────────────────
+
 interface LanguageChip {
   id: string;
   code: string;
@@ -861,6 +1288,8 @@ function SiteCard({
   const [translationTarget, setTranslationTarget] =
     useState<LanguageChip | null>(null);
   const [showSnippet, setShowSnippet] = useState(false);
+  const [showAutoSetup, setShowAutoSetup] = useState(false);
+  const [showCrawlOnly, setShowCrawlOnly] = useState(false);
 
   // Build chip list from site.languages (enabled IDs) + fetch all languages once
   useEffect(() => {
@@ -1068,6 +1497,29 @@ function SiteCard({
           onClose={() => setShowSnippet(false)}
         />
       )}
+      {showAutoSetup && (
+        <AutoSetupModal
+          siteId={site.id}
+          siteName={site.name}
+          onClose={() => setShowAutoSetup(false)}
+          onComplete={(result) => {
+            onToast(
+              `셋업 완료! ${result.keysFound}개 키, ${result.languagesGenerated.length}개 언어 생성`,
+              "success",
+            );
+          }}
+        />
+      )}
+      {showCrawlOnly && (
+        <CrawlOnlyModal
+          siteId={site.id}
+          siteName={site.name}
+          onClose={() => setShowCrawlOnly(false)}
+          onComplete={(keysFound) => {
+            onToast(`크롤링 완료! ${keysFound}개 텍스트 추출됨`, "success");
+          }}
+        />
+      )}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-3 min-w-0">
@@ -1106,7 +1558,33 @@ function SiteCard({
             </div>
           </div>
 
-          <div className="flex gap-2 flex-shrink-0 ml-4">
+          <div className="flex gap-2 flex-shrink-0 ml-4 flex-wrap justify-end">
+            <button
+              onClick={() => setShowAutoSetup(true)}
+              disabled={!site.domain}
+              title={
+                !site.domain
+                  ? "도메인이 설정되어야 합니다"
+                  : "크롤링 + 번역 자동 생성"
+              }
+              className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-white bg-green-600 border border-green-600 rounded-lg hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              <Zap size={13} />
+              원클릭 셋업
+            </button>
+            <button
+              onClick={() => setShowCrawlOnly(true)}
+              disabled={!site.domain}
+              title={
+                !site.domain
+                  ? "도메인이 설정되어야 합니다"
+                  : "한국어 텍스트 추출"
+              }
+              className="flex items-center gap-1 px-3 py-1.5 text-sm text-blue-600 border border-blue-200 rounded-lg hover:bg-blue-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              <Search size={13} />
+              크롤링
+            </button>
             <button
               onClick={() => setShowSnippet(true)}
               className="flex items-center gap-1 px-3 py-1.5 text-sm text-orange-600 border border-orange-200 rounded-lg hover:bg-orange-50 transition-colors"
