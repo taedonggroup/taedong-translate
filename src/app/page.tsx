@@ -1,7 +1,7 @@
-'use client';
+"use client";
 
-import { useState, useEffect } from 'react';
-import { TrendingUp, Calendar, DollarSign, Globe, Cpu } from 'lucide-react';
+import { useState, useEffect } from "react";
+import { TrendingUp, Calendar, DollarSign, Globe, Cpu } from "lucide-react";
 
 interface StatsSite {
   id: string;
@@ -39,34 +39,64 @@ interface Stats {
 }
 
 const LANG_LABELS: Record<string, string> = {
-  en: 'EN',
-  ja: 'JA',
-  zh: 'ZH',
+  en: "EN",
+  ja: "JA",
+  zh: "ZH",
 };
 
 function formatTime(iso: string) {
   const d = new Date(iso);
-  return d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+  return d.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
 }
+
+const EMPTY_STATS: Stats = {
+  today: 0,
+  month: 0,
+  cost: 0,
+  sites: [],
+  providers: [],
+  recentLogs: [],
+};
 
 export default function DashboardPage() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [seeding, setSeeding] = useState(false);
 
-  useEffect(() => {
-    fetch('/api/stats')
+  const loadStats = () => {
+    setLoading(true);
+    setLoadError(false);
+
+    const timeout = setTimeout(() => {
+      setStats(EMPTY_STATS);
+      setLoading(false);
+      setLoadError(true);
+    }, 5000);
+
+    fetch("/api/stats")
       .then((r) => r.json())
-      .then(setStats)
-      .catch(console.error)
+      .then((data: Stats) => {
+        clearTimeout(timeout);
+        setStats(data);
+      })
+      .catch(() => {
+        clearTimeout(timeout);
+        setStats(EMPTY_STATS);
+        setLoadError(true);
+      })
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    loadStats();
   }, []);
 
   const handleSeed = async () => {
     setSeeding(true);
     try {
-      await fetch('/api/seed', { method: 'POST' });
-      const fresh = await fetch('/api/stats').then((r) => r.json());
+      await fetch("/api/seed", { method: "POST" });
+      const fresh = await fetch("/api/stats").then((r) => r.json());
       setStats(fresh);
     } catch (e) {
       console.error(e);
@@ -77,36 +107,70 @@ export default function DashboardPage() {
 
   if (loading) {
     return (
-      <div className="max-w-5xl mx-auto flex items-center justify-center h-64">
-        <p className="text-sm text-gray-400">로딩 중...</p>
+      <div className="max-w-5xl mx-auto space-y-8">
+        <div>
+          <div className="h-7 w-32 bg-gray-200 rounded animate-pulse" />
+          <div className="mt-2 h-4 w-48 bg-gray-100 rounded animate-pulse" />
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+          {[0, 1, 2].map((i) => (
+            <div
+              key={i}
+              className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 flex items-start justify-between"
+            >
+              <div className="space-y-2">
+                <div className="h-3 w-20 bg-gray-100 rounded animate-pulse" />
+                <div className="h-8 w-16 bg-gray-200 rounded animate-pulse" />
+                <div className="h-3 w-8 bg-gray-100 rounded animate-pulse" />
+              </div>
+              <div className="w-10 h-10 rounded-lg bg-gray-100 animate-pulse" />
+            </div>
+          ))}
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          {[0, 1].map((i) => (
+            <div
+              key={i}
+              className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 space-y-3"
+            >
+              <div className="h-4 w-28 bg-gray-200 rounded animate-pulse" />
+              {[0, 1, 2].map((j) => (
+                <div
+                  key={j}
+                  className="h-10 bg-gray-50 rounded-lg animate-pulse"
+                />
+              ))}
+            </div>
+          ))}
+        </div>
       </div>
     );
   }
 
   const statCards = [
     {
-      label: '오늘 번역',
-      value: stats?.today.toLocaleString() ?? '0',
-      sub: '건',
+      label: "오늘 번역",
+      value: stats?.today.toLocaleString() ?? "0",
+      sub: "건",
       icon: TrendingUp,
-      iconColor: 'text-blue-500',
-      iconBg: 'bg-blue-50',
+      iconColor: "text-blue-500",
+      iconBg: "bg-blue-50",
     },
     {
-      label: '이번 달',
-      value: stats?.month.toLocaleString() ?? '0',
-      sub: '건',
+      label: "이번 달",
+      value: stats?.month.toLocaleString() ?? "0",
+      sub: "건",
       icon: Calendar,
-      iconColor: 'text-violet-500',
-      iconBg: 'bg-violet-50',
+      iconColor: "text-violet-500",
+      iconBg: "bg-violet-50",
     },
     {
-      label: '추정 비용',
+      label: "추정 비용",
       value: `$${(stats?.cost ?? 0).toFixed(4)}`,
-      sub: 'USD',
+      sub: "USD",
       icon: DollarSign,
-      iconColor: 'text-emerald-500',
-      iconBg: 'bg-emerald-50',
+      iconColor: "text-emerald-500",
+      iconBg: "bg-emerald-50",
     },
   ];
 
@@ -118,11 +182,26 @@ export default function DashboardPage() {
         <p className="mt-1 text-sm text-gray-500">번역 현황 요약</p>
       </div>
 
+      {/* Timeout / network error banner */}
+      {loadError && (
+        <div className="bg-red-50 border border-red-200 rounded-xl px-5 py-4 flex items-center justify-between gap-4">
+          <p className="text-sm text-red-700 font-medium">
+            데이터를 불러오지 못했습니다. 서버 연결을 확인해주세요.
+          </p>
+          <button
+            onClick={loadStats}
+            className="shrink-0 text-xs text-red-600 border border-red-200 px-3 py-1.5 rounded-lg hover:bg-red-100 transition-colors"
+          >
+            다시 시도
+          </button>
+        </div>
+      )}
+
       {/* DB error banner */}
-      {stats?.error && (
+      {!loadError && stats?.error && (
         <div className="bg-yellow-50 border border-yellow-200 rounded-xl px-5 py-4">
           <p className="text-sm text-yellow-800 font-medium">
-            DB가 연결되지 않았습니다.{' '}
+            DB가 연결되지 않았습니다.{" "}
             <button
               onClick={handleSeed}
               disabled={seeding}
@@ -135,29 +214,35 @@ export default function DashboardPage() {
       )}
 
       {/* Stat cards */}
-      <div className="grid grid-cols-3 gap-5">
-        {statCards.map(({ label, value, sub, icon: Icon, iconColor, iconBg }) => (
-          <div
-            key={label}
-            className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 flex items-start justify-between"
-          >
-            <div className="space-y-1">
-              <p className="text-sm font-medium text-gray-500">{label}</p>
-              <p className="text-3xl font-bold text-gray-900">{value}</p>
-              <p className="text-xs text-gray-400">{sub}</p>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+        {statCards.map(
+          ({ label, value, sub, icon: Icon, iconColor, iconBg }) => (
+            <div
+              key={label}
+              className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 flex items-start justify-between"
+            >
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-gray-500">{label}</p>
+                <p className="text-3xl font-bold text-gray-900">{value}</p>
+                <p className="text-xs text-gray-400">{sub}</p>
+              </div>
+              <div
+                className={`w-10 h-10 rounded-lg ${iconBg} flex items-center justify-center`}
+              >
+                <Icon size={18} className={iconColor} />
+              </div>
             </div>
-            <div className={`w-10 h-10 rounded-lg ${iconBg} flex items-center justify-center`}>
-              <Icon size={18} className={iconColor} />
-            </div>
-          </div>
-        ))}
+          ),
+        )}
       </div>
 
       {/* Bottom two columns: sites + providers */}
-      <div className="grid grid-cols-2 gap-5">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         {/* Connected sites */}
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
-          <h2 className="text-sm font-semibold text-gray-700 mb-4">연결된 사이트</h2>
+          <h2 className="text-sm font-semibold text-gray-700 mb-4">
+            연결된 사이트
+          </h2>
           {stats?.sites && stats.sites.length > 0 ? (
             <ul className="space-y-3">
               {stats.sites.map((site) => (
@@ -166,22 +251,26 @@ export default function DashboardPage() {
                     <Globe size={15} className="text-blue-500" />
                   </div>
                   <div className="min-w-0">
-                    <p className="text-sm font-medium text-gray-800 truncate">{site.name}</p>
-                    <p className="text-xs text-gray-400 truncate">{site.domain}</p>
+                    <p className="text-sm font-medium text-gray-800 truncate">
+                      {site.name}
+                    </p>
+                    <p className="text-xs text-gray-400 truncate">
+                      {site.domain}
+                    </p>
                   </div>
                   <span
                     className={`ml-auto shrink-0 flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full ${
                       site.active
-                        ? 'bg-green-100 text-green-700'
-                        : 'bg-gray-100 text-gray-500'
+                        ? "bg-green-100 text-green-700"
+                        : "bg-gray-100 text-gray-500"
                     }`}
                   >
                     <span
                       className={`w-1.5 h-1.5 rounded-full inline-block ${
-                        site.active ? 'bg-green-500' : 'bg-gray-400'
+                        site.active ? "bg-green-500" : "bg-gray-400"
                       }`}
                     />
-                    {site.active ? '활성' : '비활성'}
+                    {site.active ? "활성" : "비활성"}
                   </span>
                 </li>
               ))}
@@ -197,7 +286,7 @@ export default function DashboardPage() {
                 disabled={seeding}
                 className="text-xs text-blue-500 hover:underline disabled:opacity-50"
               >
-                {seeding ? '생성 중...' : '시드 데이터 생성'}
+                {seeding ? "생성 중..." : "시드 데이터 생성"}
               </button>
             </div>
           )}
@@ -205,7 +294,9 @@ export default function DashboardPage() {
 
         {/* Active providers */}
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
-          <h2 className="text-sm font-semibold text-gray-700 mb-4">활성 Provider</h2>
+          <h2 className="text-sm font-semibold text-gray-700 mb-4">
+            활성 Provider
+          </h2>
           {stats?.providers && stats.providers.length > 0 ? (
             <ul className="space-y-3">
               {stats.providers.map((provider) => (
@@ -215,7 +306,9 @@ export default function DashboardPage() {
                   </div>
                   <div className="min-w-0">
                     <div className="flex items-center gap-1.5">
-                      <p className="text-sm font-medium text-gray-800">{provider.displayName}</p>
+                      <p className="text-sm font-medium text-gray-800">
+                        {provider.displayName}
+                      </p>
                       {provider.isDefault && (
                         <span className="px-1.5 py-0.5 text-xs font-medium bg-blue-100 text-blue-700 rounded-full">
                           기본
@@ -225,15 +318,15 @@ export default function DashboardPage() {
                     <div className="flex items-center gap-1 mt-0.5">
                       <span
                         className={`w-1.5 h-1.5 rounded-full inline-block ${
-                          provider.active ? 'bg-green-500' : 'bg-gray-300'
+                          provider.active ? "bg-green-500" : "bg-gray-300"
                         }`}
                       />
                       <span
                         className={`text-xs font-medium ${
-                          provider.active ? 'text-green-600' : 'text-gray-400'
+                          provider.active ? "text-green-600" : "text-gray-400"
                         }`}
                       >
-                        {provider.active ? '연결됨' : '비활성'}
+                        {provider.active ? "연결됨" : "비활성"}
                       </span>
                     </div>
                   </div>
@@ -251,7 +344,7 @@ export default function DashboardPage() {
                 disabled={seeding}
                 className="text-xs text-blue-500 hover:underline disabled:opacity-50"
               >
-                {seeding ? '생성 중...' : '시드 데이터 생성'}
+                {seeding ? "생성 중..." : "시드 데이터 생성"}
               </button>
             </div>
           )}
@@ -266,37 +359,60 @@ export default function DashboardPage() {
             <table className="w-full text-xs">
               <thead>
                 <tr className="border-b border-gray-100">
-                  <th className="pb-2 text-left font-medium text-gray-400">시간</th>
-                  <th className="pb-2 text-left font-medium text-gray-400">사이트</th>
-                  <th className="pb-2 text-left font-medium text-gray-400">언어</th>
-                  <th className="pb-2 text-right font-medium text-gray-400">글자</th>
-                  <th className="pb-2 text-left font-medium text-gray-400 pl-4">Provider</th>
-                  <th className="pb-2 text-right font-medium text-gray-400">응답</th>
-                  <th className="pb-2 text-center font-medium text-gray-400">상태</th>
+                  <th className="pb-2 text-left font-medium text-gray-400">
+                    시간
+                  </th>
+                  <th className="pb-2 text-left font-medium text-gray-400">
+                    사이트
+                  </th>
+                  <th className="pb-2 text-left font-medium text-gray-400">
+                    언어
+                  </th>
+                  <th className="pb-2 text-right font-medium text-gray-400">
+                    글자
+                  </th>
+                  <th className="pb-2 text-left font-medium text-gray-400 pl-4">
+                    Provider
+                  </th>
+                  <th className="pb-2 text-right font-medium text-gray-400">
+                    응답
+                  </th>
+                  <th className="pb-2 text-center font-medium text-gray-400">
+                    상태
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {stats.recentLogs.map((log, idx) => (
-                  <tr key={idx} className="border-b border-gray-50 last:border-0">
-                    <td className="py-2 text-gray-400 tabular-nums">{formatTime(log.createdAt)}</td>
+                  <tr
+                    key={idx}
+                    className="border-b border-gray-50 last:border-0"
+                  >
+                    <td className="py-2 text-gray-400 tabular-nums">
+                      {formatTime(log.createdAt)}
+                    </td>
                     <td className="py-2 text-gray-600">{log.siteName}</td>
                     <td className="py-2">
                       <span className="px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded font-mono">
                         {LANG_LABELS[log.toLang] ?? log.toLang.toUpperCase()}
                       </span>
                     </td>
-                    <td className="py-2 text-right text-gray-500 tabular-nums">{log.inputChars}</td>
+                    <td className="py-2 text-right text-gray-500 tabular-nums">
+                      {log.inputChars}
+                    </td>
                     <td className="py-2 text-gray-600 pl-4">{log.provider}</td>
-                    <td className="py-2 text-right text-gray-500 tabular-nums">{log.durationMs}ms</td>
+                    <td className="py-2 text-right text-gray-500 tabular-nums">
+                      {log.durationMs}ms
+                    </td>
                     <td className="py-2 text-center">
                       <span
                         className={`px-1.5 py-0.5 rounded font-medium ${
                           log.success
-                            ? 'bg-green-100 text-green-700'
-                            : 'bg-red-100 text-red-600'
+                            ? "bg-green-100 text-green-700"
+                            : "bg-red-100 text-red-600"
                         }`}
                       >
-                        {log.success ? '성공' : '실패'}
+                        {log.success ? "성공" : "실패"}
                       </span>
                     </td>
                   </tr>
@@ -307,7 +423,9 @@ export default function DashboardPage() {
         ) : (
           <div className="flex flex-col items-center justify-center py-10 text-center space-y-2">
             <p className="text-sm text-gray-400">번역 기록이 없습니다</p>
-            <p className="text-xs text-gray-300">Playground에서 번역을 실행해보세요</p>
+            <p className="text-xs text-gray-300">
+              Playground에서 번역을 실행해보세요
+            </p>
           </div>
         )}
       </div>

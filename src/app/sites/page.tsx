@@ -1700,6 +1700,7 @@ function SiteCard({
 export default function SitesPage() {
   const [sites, setSites] = useState<Site[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [toast, setToast] = useState<Toast | null>(null);
 
@@ -1712,16 +1713,27 @@ export default function SitesPage() {
 
   const loadSites = useCallback(async () => {
     setLoading(true);
+    setLoadError(false);
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => {
+      controller.abort();
+    }, 5000);
+
     try {
-      const res = await fetch("/api/sites");
+      const res = await fetch("/api/sites", { signal: controller.signal });
+      clearTimeout(timeout);
       const data = (await res.json()) as { sites?: Site[]; error?: string };
       if (!res.ok) {
         showToast(data.error ?? "불러오기 실패", "error");
+        setLoadError(true);
         return;
       }
       setSites(data.sites ?? []);
     } catch {
-      showToast("네트워크 오류가 발생했습니다.", "error");
+      clearTimeout(timeout);
+      setLoadError(true);
+      showToast("데이터를 불러오지 못했습니다.", "error");
     } finally {
       setLoading(false);
     }
@@ -1771,8 +1783,26 @@ export default function SitesPage() {
         </div>
 
         {loading ? (
-          <div className="flex items-center justify-center h-40">
-            <Loader2 size={20} className="animate-spin text-gray-300" />
+          <div className="flex flex-col gap-4">
+            {[0, 1, 2].map((i) => (
+              <div
+                key={i}
+                className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 h-32 animate-pulse"
+              />
+            ))}
+          </div>
+        ) : loadError ? (
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-12 flex flex-col items-center justify-center text-center space-y-3">
+            <p className="text-sm font-medium text-gray-500">
+              데이터를 불러오지 못했습니다
+            </p>
+            <button
+              onClick={loadSites}
+              className="flex items-center gap-2 px-4 py-2 text-sm text-blue-600 border border-blue-200 rounded-lg hover:bg-blue-50 transition-colors"
+            >
+              <Loader2 size={14} />
+              다시 시도
+            </button>
           </div>
         ) : sites.length === 0 ? (
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-12 flex flex-col items-center justify-center text-center space-y-3">
