@@ -1520,103 +1520,99 @@ function SiteCard({
           }}
         />
       )}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-        <div className="flex items-start justify-between">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-10 h-10 bg-blue-50 rounded-lg flex items-center justify-center flex-shrink-0">
-              <Globe size={20} className="text-blue-500" />
-            </div>
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <h2 className="text-base font-semibold text-gray-900">
-                  {site.name}
-                </h2>
-                <span
-                  className={`flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full ${
-                    site.active
-                      ? "bg-green-100 text-green-700"
-                      : "bg-gray-100 text-gray-500"
-                  }`}
-                >
-                  <span
-                    className={`w-1.5 h-1.5 rounded-full inline-block ${site.active ? "bg-green-500" : "bg-gray-400"}`}
-                  />
-                  {site.active ? "활성" : "비활성"}
-                </span>
-              </div>
-              <a
-                href={`https://${site.domain}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-xs text-blue-500 hover:underline mt-0.5 block truncate"
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 sm:p-6">
+        <div className="flex items-center gap-3 mb-3">
+          <div className="w-10 h-10 bg-blue-50 rounded-lg flex items-center justify-center flex-shrink-0">
+            <Globe size={20} className="text-blue-500" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="text-base font-semibold text-gray-900">
+                {site.name}
+              </h2>
+              <span
+                className={`flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full ${
+                  site.active
+                    ? "bg-green-100 text-green-700"
+                    : "bg-gray-100 text-gray-500"
+                }`}
               >
-                {site.domain}
-              </a>
-              <p className="text-xs text-gray-400 mt-0.5">
-                번역 {site._count.logs.toLocaleString()}건
-              </p>
+                <span
+                  className={`w-1.5 h-1.5 rounded-full inline-block ${site.active ? "bg-green-500" : "bg-gray-400"}`}
+                />
+                {site.active ? "활성" : "비활성"}
+              </span>
             </div>
+            <a
+              href={`https://${site.domain}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-blue-500 hover:underline mt-0.5 block truncate"
+            >
+              {site.domain}
+            </a>
+            <p className="text-xs text-gray-400 mt-0.5">
+              번역 {site._count.logs.toLocaleString()}건
+            </p>
           </div>
+        </div>
 
-          <div className="flex gap-2 flex-shrink-0 ml-4 flex-wrap justify-end">
-            <button
-              onClick={() => setShowAutoSetup(true)}
-              disabled={!site.domain}
-              title={
-                !site.domain
-                  ? "도메인이 설정되어야 합니다"
-                  : "크롤링 + 번역 자동 생성"
-              }
-              className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-white bg-green-600 border border-green-600 rounded-lg hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-            >
-              <Zap size={13} />
-              원클릭 셋업
-            </button>
-            <button
-              onClick={() => setShowCrawlOnly(true)}
-              disabled={!site.domain}
-              title={
-                !site.domain
-                  ? "도메인이 설정되어야 합니다"
-                  : "한국어 텍스트 추출"
-              }
-              className="flex items-center gap-1 px-3 py-1.5 text-sm text-blue-600 border border-blue-200 rounded-lg hover:bg-blue-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-            >
-              <Search size={13} />
-              크롤링
-            </button>
-            <button
-              onClick={() => setShowSnippet(true)}
-              className="flex items-center gap-1 px-3 py-1.5 text-sm text-orange-600 border border-orange-200 rounded-lg hover:bg-orange-50 transition-colors"
-            >
-              <Code2 size={13} />
-              스크립트 태그
-            </button>
-            <button
-              onClick={() => setShowEdit(true)}
-              className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
-            >
-              <Pencil size={13} />
-              편집
-            </button>
-            <button
-              onClick={handleToggleActive}
-              disabled={toggling}
-              className={`px-3 py-1.5 text-sm border rounded-lg transition-colors disabled:opacity-50 ${
-                site.active
-                  ? "text-red-500 border-red-100 hover:bg-red-50"
-                  : "text-blue-600 border-blue-200 hover:bg-blue-50"
-              }`}
-            >
-              {toggling ? (
-                <Loader2 size={14} className="animate-spin" />
-              ) : site.active ? (
-                "비활성화"
-              ) : (
-                "활성화"
-              )}
-            </button>
-          </div>
+        <div className="flex gap-2 flex-wrap">
+          <button
+            onClick={() => setShowAutoSetup(true)}
+            disabled={!site.domain}
+            title={
+              !site.domain
+                ? "도메인이 설정되어야 합니다"
+                : "크롤링 + 번역 자동 생성"
+            }
+            className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-white bg-green-600 border border-green-600 rounded-lg hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            <Zap size={13} />
+            원클릭 셋업
+          </button>
+          <button
+            onClick={() => setShowCrawlOnly(true)}
+            disabled={!site.domain}
+            title={
+              !site.domain ? "도메인이 설정되어야 합니다" : "한국어 텍스트 추출"
+            }
+            className="flex items-center gap-1 px-3 py-1.5 text-sm text-blue-600 border border-blue-200 rounded-lg hover:bg-blue-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            <Search size={13} />
+            크롤링
+          </button>
+          <button
+            onClick={() => setShowSnippet(true)}
+            className="flex items-center gap-1 px-3 py-1.5 text-sm text-orange-600 border border-orange-200 rounded-lg hover:bg-orange-50 transition-colors"
+          >
+            <Code2 size={13} />
+            스크립트 태그
+          </button>
+          <button
+            onClick={() => setShowEdit(true)}
+            className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+          >
+            <Pencil size={13} />
+            편집
+          </button>
+          <button
+            onClick={handleToggleActive}
+            disabled={toggling}
+            className={`px-3 py-1.5 text-sm border rounded-lg transition-colors disabled:opacity-50 ${
+              site.active
+                ? "text-red-500 border-red-100 hover:bg-red-50"
+                : "text-blue-600 border-blue-200 hover:bg-blue-50"
+            }`}
+          >
+            {toggling ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : site.active ? (
+              "비활성화"
+            ) : (
+              "활성화"
+            )}
+          </button>
         </div>
 
         {/* API Key row */}
