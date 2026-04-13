@@ -19,17 +19,33 @@ model Site {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   logs      TranslationLog[]
+  languages SiteLanguage[]
 }
 
 model Language {
   id        String   @id @default(cuid())
-  code      String   @unique  // "ko", "en", "ja", "zh", "vi", "th"
-  name      String             // "한국어", "English", "日本語"
-  isSource  Boolean  @default(false)  // true = 원본 언어 (ko)
+  code      String   @unique
+  name      String
+  isSource  Boolean  @default(false)
   active    Boolean  @default(true)
   order     Int      @default(0)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  sites     SiteLanguage[]
+}
+
+model SiteLanguage {
+  id         String   @id @default(cuid())
+  siteId     String
+  languageId String
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+
+  site     Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  language Language @relation(fields: [languageId], references: [id], onDelete: Cascade)
+
+  @@unique([siteId, languageId])
+  @@index([siteId])
 }
 
 model Provider {

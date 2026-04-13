@@ -44,6 +44,23 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Check if the target language is enabled for this site
+  const siteLanguage = await prisma.siteLanguage.findFirst({
+    where: {
+      siteId: site.id,
+      language: { code: to },
+      active: true,
+    },
+    include: { language: true },
+  });
+
+  if (!siteLanguage) {
+    return NextResponse.json(
+      { error: `Language "${to}" is not enabled for this site` },
+      { status: 400 },
+    );
+  }
+
   // Single text
   if (text) {
     const result = await translate(text, from, to);

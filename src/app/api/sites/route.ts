@@ -7,6 +7,10 @@ export async function GET() {
       orderBy: { createdAt: "desc" },
       include: {
         _count: { select: { logs: true } },
+        languages: {
+          include: { language: true },
+          orderBy: { language: { order: "asc" } },
+        },
       },
     });
 
@@ -43,13 +47,37 @@ export async function POST(req: NextRequest) {
 
     const apiKey = `td_tr_${crypto.randomUUID()}`;
 
-    const site = await prisma.site.create({
+    const newSite = await prisma.site.create({
       data: {
         name: body.name.trim(),
         domain: body.domain.trim(),
         apiKey,
       },
-      include: { _count: { select: { logs: true } } },
+    });
+
+    // Auto-assign all active languages to the new site
+    const activeLanguages = await prisma.language.findMany({
+      where: { active: true },
+    });
+    if (activeLanguages.length > 0) {
+      await prisma.siteLanguage.createMany({
+        data: activeLanguages.map((lang) => ({
+          siteId: newSite.id,
+          languageId: lang.id,
+        })),
+        skipDuplicates: true,
+      });
+    }
+
+    const site = await prisma.site.findUnique({
+      where: { id: newSite.id },
+      include: {
+        _count: { select: { logs: true } },
+        languages: {
+          include: { language: true },
+          orderBy: { language: { order: "asc" } },
+        },
+      },
     });
 
     return NextResponse.json({ site }, { status: 201 });
@@ -110,7 +138,13 @@ export async function PUT(req: NextRequest) {
     const site = await prisma.site.update({
       where: { id: body.id },
       data: updateData,
-      include: { _count: { select: { logs: true } } },
+      include: {
+        _count: { select: { logs: true } },
+        languages: {
+          include: { language: true },
+          orderBy: { language: { order: "asc" } },
+        },
+      },
     });
 
     return NextResponse.json({ site });
@@ -159,7 +193,13 @@ export async function PATCH(req: NextRequest) {
     const site = await prisma.site.update({
       where: { id: body.id },
       data: { apiKey: newApiKey },
-      include: { _count: { select: { logs: true } } },
+      include: {
+        _count: { select: { logs: true } },
+        languages: {
+          include: { language: true },
+          orderBy: { language: { order: "asc" } },
+        },
+      },
     });
 
     return NextResponse.json({ site });

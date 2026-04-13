@@ -12,6 +12,17 @@ import {
   X,
 } from "lucide-react";
 
+interface SiteLanguageEntry {
+  id: string;
+  language: {
+    id: string;
+    code: string;
+    name: string;
+    isSource: boolean;
+    order: number;
+  };
+}
+
 interface Site {
   id: string;
   name: string;
@@ -19,6 +30,7 @@ interface Site {
   apiKey: string;
   active: boolean;
   _count: { logs: number };
+  languages: SiteLanguageEntry[];
 }
 
 interface Toast {
@@ -297,6 +309,97 @@ function EditSiteModal({
   );
 }
 
+interface LanguageChip {
+  id: string;
+  code: string;
+  name: string;
+  isSource: boolean;
+  enabled: boolean;
+}
+
+function LanguageChips({
+  siteId,
+  chips,
+  onToggle,
+}: {
+  siteId: string;
+  chips: LanguageChip[];
+  onToggle: (languageId: string, enabled: boolean) => void;
+}) {
+  const [pending, setPending] = useState<string | null>(null);
+
+  const handleClick = async (chip: LanguageChip) => {
+    if (chip.isSource || pending) return;
+    const newEnabled = !chip.enabled;
+    setPending(chip.id);
+    try {
+      const res = await fetch(`/api/sites/${siteId}/languages`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ languageId: chip.id, enabled: newEnabled }),
+      });
+      if (res.ok) {
+        onToggle(chip.id, newEnabled);
+      }
+    } finally {
+      setPending(null);
+    }
+  };
+
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {chips.map((chip) => {
+        const isLoading = pending === chip.id;
+        let className =
+          "inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full border transition-all select-none ";
+        if (chip.isSource) {
+          className +=
+            "bg-orange-100 text-orange-700 border-orange-200 cursor-default";
+        } else if (chip.enabled) {
+          className +=
+            "bg-blue-100 text-blue-700 border-blue-200 cursor-pointer hover:bg-blue-200";
+        } else {
+          className +=
+            "bg-gray-100 text-gray-400 border-gray-200 cursor-pointer hover:bg-gray-200";
+        }
+
+        return (
+          <button
+            key={chip.id}
+            type="button"
+            onClick={() => handleClick(chip)}
+            disabled={chip.isSource || isLoading}
+            title={
+              chip.isSource
+                ? "소스 언어는 항상 활성화됩니다"
+                : chip.enabled
+                  ? "클릭하여 비활성화"
+                  : "클릭하여 활성화"
+            }
+            className={className}
+          >
+            {isLoading ? (
+              <Loader2 size={10} className="animate-spin" />
+            ) : (
+              <span
+                className={`w-1.5 h-1.5 rounded-full inline-block ${
+                  chip.isSource
+                    ? "bg-orange-500"
+                    : chip.enabled
+                      ? "bg-blue-500"
+                      : "bg-gray-300"
+                }`}
+              />
+            )}
+            <span className="uppercase">{chip.code}</span>
+            <span className="hidden sm:inline">{chip.name}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function SiteCard({
   site,
   onUpdated,
@@ -310,6 +413,65 @@ function SiteCard({
   const [toggling, setToggling] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
+  const [allLanguages, setAllLanguages] = useState<LanguageChip[]>([]);
+  const [loadingLangs, setLoadingLangs] = useState(false);
+
+  // Build chip list from site.languages (enabled IDs) + fetch all languages once
+  useEffect(() => {
+    setLoadingLangs(true);
+    fetch(`/api/sites/${site.id}/languages`)
+      .then((r) => r.json())
+      .then(
+        (data: {
+          languages?: Array<{
+            id: string;
+            code: string;
+            name: string;
+            isSource: boolean;
+            order: number;
+            enabled: boolean;
+          }>;
+        }) => {
+          if (data.languages) {
+            setAllLanguages(
+              data.languages.map((l) => ({
+                id: l.id,
+                code: l.code,
+                name: l.name,
+                isSource: l.isSource,
+                enabled: l.isSource ? true : l.enabled,
+              })),
+            );
+          }
+        },
+      )
+      .catch(() => {
+        // Fallback to site.languages data if fetch fails
+        const enabledIds = new Set(site.languages.map((sl) => sl.language.id));
+        setAllLanguages(
+          site.languages.map((sl) => ({
+            id: sl.language.id,
+            code: sl.language.code,
+            name: sl.language.name,
+            isSource: sl.language.isSource,
+            enabled: sl.language.isSource || enabledIds.has(sl.language.id),
+          })),
+        );
+      })
+      .finally(() => setLoadingLangs(false));
+  }, [site.id, site.languages]);
+
+  const handleLanguageToggle = (languageId: string, enabled: boolean) => {
+    setAllLanguages((prev) =>
+      prev.map((chip) =>
+        chip.id === languageId ? { ...chip, enabled } : chip,
+      ),
+    );
+    onToast(
+      enabled ? "언어가 활성화되었습니다." : "언어가 비활성화되었습니다.",
+      "success",
+    );
+  };
 
   const handleCopy = () => {
     navigator.clipboard.writeText(site.apiKey);
@@ -477,6 +639,25 @@ function SiteCard({
               <RefreshCw size={14} className="text-gray-500" />
             )}
           </button>
+        </div>
+
+        {/* Language section */}
+        <div className="mt-3 pt-3 border-t border-gray-100">
+          <p className="text-xs font-medium text-gray-500 mb-2">지원 언어</p>
+          {loadingLangs ? (
+            <div className="flex items-center gap-1.5 text-xs text-gray-400">
+              <Loader2 size={12} className="animate-spin" />
+              언어 불러오는 중...
+            </div>
+          ) : allLanguages.length > 0 ? (
+            <LanguageChips
+              siteId={site.id}
+              chips={allLanguages}
+              onToggle={handleLanguageToggle}
+            />
+          ) : (
+            <p className="text-xs text-gray-400">언어 없음</p>
+          )}
         </div>
       </div>
     </>

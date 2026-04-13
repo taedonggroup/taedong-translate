@@ -71,6 +71,20 @@ export async function POST() {
       },
     });
 
+    // Assign all languages to both sites
+    const allLangs = await prisma.language.findMany();
+    for (const site of [vitamin, seolin]) {
+      for (const lang of allLangs) {
+        await prisma.siteLanguage.upsert({
+          where: {
+            siteId_languageId: { siteId: site.id, languageId: lang.id },
+          },
+          update: {},
+          create: { siteId: site.id, languageId: lang.id },
+        });
+      }
+    }
+
     // Seed some translation logs
     const now = new Date();
     const logsToCreate = [];
