@@ -1,13 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
+function maskApiKey(apiKey: string): string {
+  if (!apiKey || apiKey.length < 4) return apiKey;
+  return "•".repeat(Math.max(0, apiKey.length - 4)) + apiKey.slice(-4);
+}
+
 export async function GET() {
   try {
     const providers = await prisma.provider.findMany({
       orderBy: { isDefault: "desc" },
     });
 
-    return NextResponse.json({ providers });
+    const masked = providers.map((p) => ({
+      ...p,
+      apiKey: maskApiKey(p.apiKey),
+    }));
+
+    return NextResponse.json({ providers: masked });
   } catch (error) {
     console.error("[GET /api/providers]", error);
     return NextResponse.json(
@@ -22,6 +32,9 @@ export async function POST(req: NextRequest) {
     const body = (await req.json()) as {
       name?: unknown;
       displayName?: unknown;
+      apiKey?: unknown;
+      model?: unknown;
+      costPerChar?: unknown;
     };
 
     if (!body.name || typeof body.name !== "string" || !body.name.trim()) {
@@ -41,14 +54,41 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const provider = await prisma.provider.create({
-      data: {
-        name: body.name.trim(),
-        displayName: body.displayName.trim(),
-      },
-    });
+    const createData: {
+      name: string;
+      displayName: string;
+      apiKey?: string;
+      model?: string | null;
+      costPerChar?: number;
+    } = {
+      name: body.name.trim(),
+      displayName: body.displayName.trim(),
+    };
 
-    return NextResponse.json({ provider }, { status: 201 });
+    if (body.apiKey !== undefined && typeof body.apiKey === "string") {
+      createData.apiKey = body.apiKey.trim();
+    }
+    if (body.model !== undefined) {
+      createData.model =
+        body.model === null || body.model === ""
+          ? null
+          : typeof body.model === "string"
+            ? body.model.trim()
+            : null;
+    }
+    if (
+      body.costPerChar !== undefined &&
+      typeof body.costPerChar === "number"
+    ) {
+      createData.costPerChar = body.costPerChar;
+    }
+
+    const provider = await prisma.provider.create({ data: createData });
+
+    return NextResponse.json(
+      { provider: { ...provider, apiKey: maskApiKey(provider.apiKey) } },
+      { status: 201 },
+    );
   } catch (error) {
     console.error("[POST /api/providers]", error);
     return NextResponse.json(
@@ -64,13 +104,24 @@ export async function PUT(req: NextRequest) {
       id?: unknown;
       active?: unknown;
       isDefault?: unknown;
+      apiKey?: unknown;
+      model?: unknown;
+      costPerChar?: unknown;
+      displayName?: unknown;
     };
 
     if (!body.id || typeof body.id !== "string") {
       return NextResponse.json({ error: "id가 필요합니다." }, { status: 400 });
     }
 
-    const updateData: { active?: boolean; isDefault?: boolean } = {};
+    const updateData: {
+      active?: boolean;
+      isDefault?: boolean;
+      apiKey?: string;
+      model?: string | null;
+      costPerChar?: number;
+      displayName?: string;
+    } = {};
 
     if (body.active !== undefined) {
       if (typeof body.active !== "boolean") {
@@ -92,6 +143,34 @@ export async function PUT(req: NextRequest) {
       updateData.isDefault = body.isDefault;
     }
 
+    if (body.apiKey !== undefined && typeof body.apiKey === "string") {
+      updateData.apiKey = body.apiKey.trim();
+    }
+
+    if (body.model !== undefined) {
+      updateData.model =
+        body.model === null || body.model === ""
+          ? null
+          : typeof body.model === "string"
+            ? body.model.trim()
+            : null;
+    }
+
+    if (
+      body.costPerChar !== undefined &&
+      typeof body.costPerChar === "number"
+    ) {
+      updateData.costPerChar = body.costPerChar;
+    }
+
+    if (
+      body.displayName !== undefined &&
+      typeof body.displayName === "string" &&
+      body.displayName.trim()
+    ) {
+      updateData.displayName = body.displayName.trim();
+    }
+
     // When setting as default, clear all others first
     if (updateData.isDefault === true) {
       await prisma.provider.updateMany({
@@ -105,7 +184,9 @@ export async function PUT(req: NextRequest) {
       data: updateData,
     });
 
-    return NextResponse.json({ provider });
+    return NextResponse.json({
+      provider: { ...provider, apiKey: maskApiKey(provider.apiKey) },
+    });
   } catch (error) {
     console.error("[PUT /api/providers]", error);
     return NextResponse.json(

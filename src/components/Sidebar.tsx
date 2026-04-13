@@ -2,11 +2,21 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Cpu, Play, Globe, Settings } from "lucide-react";
+import {
+  LayoutDashboard,
+  Cpu,
+  Play,
+  Globe,
+  Settings,
+  Globe2,
+  FileText,
+} from "lucide-react";
 
 const navItems = [
   { label: "Dashboard", href: "/", icon: LayoutDashboard },
   { label: "AI Models", href: "/models", icon: Cpu },
+  { label: "Languages", href: "/languages", icon: Globe2 },
+  { label: "Translations", href: "/translations", icon: FileText },
   { label: "Playground", href: "/playground", icon: Play },
   { label: "Sites", href: "/sites", icon: Globe },
 ];

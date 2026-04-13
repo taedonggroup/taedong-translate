@@ -21,12 +21,26 @@ model Site {
   logs      TranslationLog[]
 }
 
+model Language {
+  id        String   @id @default(cuid())
+  code      String   @unique  // "ko", "en", "ja", "zh", "vi", "th"
+  name      String             // "한국어", "English", "日本語"
+  isSource  Boolean  @default(false)  // true = 원본 언어 (ko)
+  active    Boolean  @default(true)
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 model Provider {
   id          String   @id @default(cuid())
   name        String   @unique
   displayName String
+  apiKey      String   @default("")   // encrypted or plain API key
+  model       String?                  // "claude-haiku-4-5-20251001" etc
   active      Boolean  @default(true)
   isDefault   Boolean  @default(false)
+  costPerChar Float    @default(0)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   logs        TranslationLog[]
