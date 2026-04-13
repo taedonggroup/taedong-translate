@@ -25,7 +25,7 @@
     }
     return "https://taedong-translate.vercel.app";
   })();
-  var CACHE_TTL = 60 * 60 * 1000; // 1 hour in ms
+  var CACHE_TTL = 5 * 60 * 1000; // 5 minutes — 플랫폼 설정 변경 빠르게 반영
   var COOKIE_MAX_AGE = 30 * 24 * 60 * 60; // 30 days in seconds
 
   // ─── State ────────────────────────────────────────────────────────────────
