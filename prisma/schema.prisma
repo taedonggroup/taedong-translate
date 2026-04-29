@@ -63,17 +63,25 @@ model SiteLanguage {
 }
 
 model Provider {
-  id          String   @id @default(cuid())
-  name        String   @unique
-  displayName String
-  apiKey      String   @default("")   // encrypted or plain API key
-  model       String?                  // "claude-haiku-4-5-20251001" etc
-  active      Boolean  @default(true)
-  isDefault   Boolean  @default(false)
-  costPerChar Float    @default(0)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  logs        TranslationLog[]
+  id              String   @id @default(cuid())
+  name            String   @unique
+  displayName     String
+  apiKey          String   @default("")
+  model           String?
+  active          Boolean  @default(true)
+  isDefault       Boolean  @default(false)
+  costPerChar     Float    @default(0)
+  // Free quota tracking — auto fallback to next provider when reached
+  freeQuotaUsed   Int      @default(0)
+  freeQuotaLimit  Int      @default(0)   // 0 = unlimited (paid or self-hosted)
+  quotaResetAt    DateTime?
+  // Routing hints
+  priority        Int      @default(100) // lower number = higher priority
+  maxCharsPerCall Int      @default(5000)
+  supportsBatch   Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  logs            TranslationLog[]
 }
 
 model TranslationLog {
@@ -86,10 +94,32 @@ model TranslationLog {
   outputChars Int      @default(0)
   durationMs  Int
   cost        Float    @default(0)
+  cacheHit    Boolean  @default(false)
   success     Boolean  @default(true)
   error       String?
   createdAt   DateTime @default(now())
 
   site     Site?     @relation(fields: [siteId], references: [id])
   provider Provider? @relation(fields: [providerId], references: [id])
+
+  @@index([createdAt])
+  @@index([siteId, createdAt])
+}
+
+// Translation memory — every successful translation is cached.
+// Lookup is O(1) via the unique (textHash, fromLang, toLang) index.
+model TranslationCache {
+  id          String   @id @default(cuid())
+  textHash    String   // SHA-256 of source text
+  fromLang    String
+  toLang      String
+  sourceText  String   @db.Text
+  translated  String   @db.Text
+  provider    String
+  hits        Int      @default(0)
+  createdAt   DateTime @default(now())
+  lastUsedAt  DateTime @default(now())
+
+  @@unique([textHash, fromLang, toLang])
+  @@index([lastUsedAt])
 }

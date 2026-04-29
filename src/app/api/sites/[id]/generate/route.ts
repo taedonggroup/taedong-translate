@@ -1,60 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { translate } from "@/lib/translate";
+import { translateBatch } from "@/lib/translate";
+import {
+  flattenMessages,
+  unflattenMessages,
+  MessageObject,
+  MessageValue,
+} from "@/lib/messages";
 
-export const maxDuration = 300; // 5 minutes for large translation jobs
+export const maxDuration = 300;
 
 interface RouteContext {
   params: Promise<{ id: string }>;
-}
-
-type MessageValue = string | MessageObject | MessageValue[];
-interface MessageObject {
-  [key: string]: MessageValue;
-}
-
-async function translateObject(
-  obj: MessageValue,
-  from: string,
-  to: string,
-): Promise<MessageValue> {
-  if (typeof obj === "string") {
-    if (obj.length === 0) return obj;
-    try {
-      const result = await translate(obj, from, to);
-      return result.translated;
-    } catch {
-      return obj; // fallback to original on error
-    }
-  }
-  if (Array.isArray(obj)) {
-    return Promise.all(obj.map((item) => translateObject(item, from, to)));
-  }
-  if (obj && typeof obj === "object") {
-    const result: MessageObject = {};
-    for (const [key, value] of Object.entries(obj)) {
-      result[key] = await translateObject(value, from, to);
-      // Small rate-limit delay between string translations
-      if (typeof value === "string" && value.length > 0) {
-        await new Promise((r) => setTimeout(r, 300));
-      }
-    }
-    return result;
-  }
-  return obj;
-}
-
-function countChars(obj: MessageValue): number {
-  if (typeof obj === "string") return obj.length;
-  if (Array.isArray(obj))
-    return obj.reduce((sum, item) => sum + countChars(item), 0);
-  if (obj && typeof obj === "object") {
-    return Object.values(obj).reduce(
-      (sum: number, val) => sum + countChars(val as MessageValue),
-      0,
-    );
-  }
-  return 0;
 }
 
 // POST /api/sites/[id]/generate
@@ -89,28 +46,32 @@ export async function POST(request: NextRequest, context: RouteContext) {
       );
     }
 
-    const startTime = Date.now();
     const sourceMessages = body.sourceMessages as MessageObject;
-    const translated = await translateObject(sourceMessages, "ko", body.locale);
-    const durationMs = Date.now() - startTime;
+    const flat = flattenMessages(sourceMessages as MessageValue);
+    const sources = flat.map((e) => e.value);
 
-    const inputChars = countChars(sourceMessages);
-    const outputChars = countChars(translated as MessageValue);
-
-    await prisma.translationLog.create({
-      data: {
-        siteId,
-        fromLang: "ko",
-        toLang: body.locale,
-        inputChars,
-        outputChars,
-        durationMs,
-        cost: 0,
-        success: true,
-      },
+    const batch = await translateBatch(sources, "ko", body.locale, {
+      siteId,
     });
 
-    return NextResponse.json({ locale: body.locale, messages: translated });
+    const translated = unflattenMessages(
+      sourceMessages as MessageValue,
+      flat,
+      batch.translated,
+    );
+
+    return NextResponse.json({
+      locale: body.locale,
+      messages: translated,
+      stats: {
+        keys: sources.length,
+        cacheHits: batch.cacheHits,
+        cacheMisses: batch.cacheMisses,
+        durationMs: batch.durationMs,
+        provider: batch.provider,
+        cost: batch.cost,
+      },
+    });
   } catch (error) {
     console.error("[POST /api/sites/[id]/generate]", error);
     return NextResponse.json(

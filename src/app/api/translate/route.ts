@@ -1,32 +1,49 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { translate } from "@/lib/translate";
+import { translate, translateBatch } from "@/lib/translate";
 
 export const maxDuration = 60;
 
-export async function POST(request: NextRequest) {
-  // API key auth
-  const authHeader = request.headers.get("authorization");
-  const apiKey = authHeader?.replace("Bearer ", "");
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "Authorization, Content-Type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
 
-  if (!apiKey) {
-    return NextResponse.json({ error: "API key required" }, { status: 401 });
+export async function OPTIONS() {
+  return new NextResponse(null, { status: 204, headers: CORS_HEADERS });
+}
+
+export async function POST(request: NextRequest) {
+  const auth = request.headers.get("authorization")?.replace("Bearer ", "");
+  if (!auth) {
+    return NextResponse.json(
+      { error: "API key required" },
+      { status: 401, headers: CORS_HEADERS },
+    );
   }
 
-  // Validate API key
   let site: { id: string; active: boolean } | null = null;
   try {
-    site = await prisma.site.findUnique({ where: { apiKey } });
+    site = await prisma.site.findUnique({
+      where: { apiKey: auth },
+      select: { id: true, active: true },
+    });
   } catch {
-    // DB not available - deny access
+    // DB down — deny.
   }
 
   if (!site) {
-    return NextResponse.json({ error: "Invalid API key" }, { status: 403 });
+    return NextResponse.json(
+      { error: "Invalid API key" },
+      { status: 403, headers: CORS_HEADERS },
+    );
   }
-
   if (!site.active) {
-    return NextResponse.json({ error: "Site is inactive" }, { status: 403 });
+    return NextResponse.json(
+      { error: "Site is inactive" },
+      { status: 403, headers: CORS_HEADERS },
+    );
   }
 
   const body = (await request.json()) as {
@@ -40,41 +57,34 @@ export async function POST(request: NextRequest) {
   if (!to) {
     return NextResponse.json(
       { error: "Target language (to) required" },
-      { status: 400 },
+      { status: 400, headers: CORS_HEADERS },
     );
   }
 
-  // Check if the target language is enabled for this site
-  const siteLanguage = await prisma.siteLanguage.findFirst({
-    where: {
-      siteId: site.id,
-      language: { code: to },
-      active: true,
-    },
-    include: { language: true },
+  // Verify target language is enabled for this site.
+  const enabled = await prisma.siteLanguage.findFirst({
+    where: { siteId: site.id, active: true, language: { code: to } },
+    select: { id: true },
   });
-
-  if (!siteLanguage) {
+  if (!enabled) {
     return NextResponse.json(
       { error: `Language "${to}" is not enabled for this site` },
-      { status: 400 },
+      { status: 400, headers: CORS_HEADERS },
     );
   }
 
-  // Single text
-  if (text) {
-    const result = await translate(text, from, to);
-    return NextResponse.json(result);
+  if (texts && Array.isArray(texts)) {
+    const result = await translateBatch(texts, from, to, { siteId: site.id });
+    return NextResponse.json(result, { headers: CORS_HEADERS });
   }
 
-  // Batch
-  if (texts && Array.isArray(texts)) {
-    const results = await Promise.all(texts.map((t) => translate(t, from, to)));
-    return NextResponse.json({ results });
+  if (typeof text === "string") {
+    const result = await translate(text, from, to, { siteId: site.id });
+    return NextResponse.json(result, { headers: CORS_HEADERS });
   }
 
   return NextResponse.json(
     { error: "text or texts required" },
-    { status: 400 },
+    { status: 400, headers: CORS_HEADERS },
   );
 }

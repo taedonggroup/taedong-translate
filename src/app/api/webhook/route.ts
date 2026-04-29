@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { translate } from "@/lib/translate";
+import { translateBatch } from "@/lib/translate";
+import { setNestedDotPath, MessageObject } from "@/lib/messages";
 
 export const maxDuration = 60;
 
@@ -19,12 +20,11 @@ export async function OPTIONS() {
 //   event: "content.updated",
 //   changes: { "nav.about": "병원소개 변경됨", "hero.title": "새 타이틀" }
 // }
-// Auth: Bearer <apiKey>
+// Auth: Bearer <site.apiKey>
 export async function POST(request: NextRequest) {
   try {
-    const authHeader = request.headers.get("authorization");
-    const apiKey = authHeader?.replace("Bearer ", "");
-    if (!apiKey) {
+    const auth = request.headers.get("authorization")?.replace("Bearer ", "");
+    if (!auth) {
       return NextResponse.json(
         { error: "API key required" },
         { status: 401, headers: CORS_HEADERS },
@@ -32,12 +32,9 @@ export async function POST(request: NextRequest) {
     }
 
     const site = await prisma.site.findUnique({
-      where: { apiKey },
+      where: { apiKey: auth },
       include: {
-        languages: {
-          where: { active: true },
-          include: { language: true },
-        },
+        languages: { where: { active: true }, include: { language: true } },
         messages: true,
       },
     });
@@ -49,11 +46,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const body = await request.json();
-    const { event, changes } = body as {
-      event: string;
-      changes: Record<string, unknown>;
+    const body = (await request.json()) as {
+      event?: string;
+      changes?: Record<string, unknown>;
     };
+    const changes = body.changes;
 
     if (
       !changes ||
@@ -66,35 +63,35 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Get target languages
-    const targetLanguages = site.languages
+    const targetLocales = site.languages
       .filter((sl) => !sl.language.isSource)
       .map((sl) => sl.language.code);
 
-    if (targetLanguages.length === 0) {
+    if (targetLocales.length === 0) {
       return NextResponse.json(
         { ok: true, translated: 0, message: "No target languages" },
         { headers: CORS_HEADERS },
       );
     }
 
-    // 1. Update ko source messages with changes
+    // Update ko source first.
     const koMsg = site.messages.find((m) => m.locale === "ko");
-    let koMessages: Record<string, unknown> = {};
+    let koMessages: MessageObject = {};
     if (koMsg) {
       try {
-        koMessages = JSON.parse(koMsg.messages) as Record<string, unknown>;
+        koMessages = JSON.parse(koMsg.messages) as MessageObject;
       } catch {
-        // start fresh if parse fails
+        // start fresh
       }
     }
 
-    // Apply changes to ko messages (changes is flat: "nav.about" → "새 값")
-    for (const [path, value] of Object.entries(changes)) {
-      setNestedValue(koMessages, path, value as string);
+    const stringChanges: { path: string; value: string }[] = [];
+    for (const [path, raw] of Object.entries(changes)) {
+      if (typeof raw !== "string" || raw.trim().length === 0) continue;
+      stringChanges.push({ path, value: raw });
+      setNestedDotPath(koMessages, path, raw);
     }
 
-    // Save updated ko messages
     await prisma.siteMessages.upsert({
       where: { siteId_locale: { siteId: site.id, locale: "ko" } },
       update: { messages: JSON.stringify(koMessages) },
@@ -105,67 +102,60 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // 2. For each target language, translate only the changed fields
-    let translatedCount = 0;
-
-    for (const locale of targetLanguages) {
-      const existingMsg = site.messages.find((m) => m.locale === locale);
-      let targetMessages: Record<string, unknown> = {};
-      if (existingMsg) {
-        try {
-          targetMessages = JSON.parse(existingMsg.messages) as Record<
-            string,
-            unknown
-          >;
-        } catch {
-          // start fresh if parse fails
-        }
-      }
-
-      // Translate each changed field
-      for (const [path, value] of Object.entries(changes)) {
-        if (typeof value !== "string" || value.trim().length === 0) continue;
-        try {
-          const result = await translate(value, "ko", locale);
-          setNestedValue(targetMessages, path, result.translated);
-          translatedCount++;
-        } catch (err) {
-          console.error(`Webhook translate error [${path} → ${locale}]:`, err);
-        }
-      }
-
-      // Save updated target messages
-      await prisma.siteMessages.upsert({
-        where: { siteId_locale: { siteId: site.id, locale } },
-        update: { messages: JSON.stringify(targetMessages) },
-        create: {
-          siteId: site.id,
-          locale,
-          messages: JSON.stringify(targetMessages),
-        },
-      });
+    if (stringChanges.length === 0) {
+      return NextResponse.json(
+        { ok: true, translatedCount: 0, message: "No translatable changes" },
+        { headers: CORS_HEADERS },
+      );
     }
 
-    // Log the webhook event
-    await prisma.translationLog.create({
-      data: {
-        siteId: site.id,
-        fromLang: "ko",
-        toLang: targetLanguages.join(","),
-        inputChars: Object.values(changes).join("").length,
-        outputChars: translatedCount * 20, // approximate
-        durationMs: 0,
-        cost: 0,
-        success: true,
-      },
-    });
+    const sources = stringChanges.map((c) => c.value);
+    let translatedCount = 0;
+
+    // Translate every target locale in parallel.
+    await Promise.all(
+      targetLocales.map(async (locale) => {
+        const existing = site.messages.find((m) => m.locale === locale);
+        let target: MessageObject = {};
+        if (existing) {
+          try {
+            target = JSON.parse(existing.messages) as MessageObject;
+          } catch {
+            // start fresh
+          }
+        }
+
+        const batch = await translateBatch(sources, "ko", locale, {
+          siteId: site.id,
+        });
+
+        for (let i = 0; i < stringChanges.length; i++) {
+          setNestedDotPath(
+            target,
+            stringChanges[i].path,
+            batch.translated[i] ?? stringChanges[i].value,
+          );
+          translatedCount++;
+        }
+
+        await prisma.siteMessages.upsert({
+          where: { siteId_locale: { siteId: site.id, locale } },
+          update: { messages: JSON.stringify(target) },
+          create: {
+            siteId: site.id,
+            locale,
+            messages: JSON.stringify(target),
+          },
+        });
+      }),
+    );
 
     return NextResponse.json(
       {
         ok: true,
-        event,
-        changedFields: Object.keys(changes).length,
-        targetLanguages,
+        event: body.event ?? "content.updated",
+        changedFields: stringChanges.length,
+        targetLanguages: targetLocales,
         translatedCount,
       },
       { headers: CORS_HEADERS },
@@ -177,22 +167,4 @@ export async function POST(request: NextRequest) {
       { status: 500, headers: CORS_HEADERS },
     );
   }
-}
-
-// Helper: set a nested value by dot-path ("nav.about" → obj.nav.about = value)
-function setNestedValue(
-  obj: Record<string, unknown>,
-  path: string,
-  value: string,
-) {
-  const keys = path.split(".");
-  let current = obj;
-  for (let i = 0; i < keys.length - 1; i++) {
-    const key = keys[i];
-    if (!current[key] || typeof current[key] !== "object") {
-      current[key] = {};
-    }
-    current = current[key] as Record<string, unknown>;
-  }
-  current[keys[keys.length - 1]] = value;
 }

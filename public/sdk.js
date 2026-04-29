@@ -1,9 +1,19 @@
 /**
- * Taedong Translate SDK v1.0.0
- * Floating language switcher + DOM translation engine
- * Usage: <script src="https://taedong-translate.vercel.app/sdk.js"
+ * Taedong Translate SDK v1.1.0
+ * Floating language switcher + DOM translation engine + realtime fallback.
+ *
+ * Usage:
+ *   <script src="https://taedong-translate.vercel.app/sdk.js"
  *           data-api-key="td_tr_xxx"
+ *           data-realtime="true"
+ *           data-realtime-debounce="250"
+ *           data-position="bottom-right"
  *           async></script>
+ *
+ * data-realtime="true" enables on-the-fly translation of any Korean text
+ * not present in the pre-generated message tree. Translations are cached in
+ * LocalStorage and the platform's TranslationCache table so repeated visits
+ * are free.
  */
 (function () {
   "use strict";
@@ -41,6 +51,16 @@
     originalTexts: [], // [{ node, originalText }]
     showWidget: true,
     position: "bottom-right",
+    // Realtime mode — when enabled, untranslated source-language text in the
+    // DOM is sent to the API in batches and replaced once the response lands.
+    realtime: false,
+    realtimeLookup: null,
+    realtimeQueue: [], // [{ node, originalText, trimmed }]
+    realtimePending: {}, // trimmed -> [nodes waiting]
+    realtimeFlushTimer: null,
+    realtimeInflight: false,
+    realtimeMaxBatch: 50,
+    realtimeDebounceMs: 250,
   };
 
   // ─── Utility: Cookie ──────────────────────────────────────────────────────
@@ -203,6 +223,9 @@
         var leading = original.match(/^\s*/)[0];
         var trailing = original.match(/\s*$/)[0];
         node.nodeValue = leading + translated + trailing;
+      } else {
+        // Realtime mode: queue untranslated source-language text for batch fetch.
+        enqueueRealtime(node, original, trimmed, lookup);
       }
     });
 
@@ -231,6 +254,168 @@
       }
     }
     return result;
+  }
+
+  // ─── Realtime Translation Queue ───────────────────────────────────────────
+  // Korean-range detection (Hangul syllables, jamo, compatibility jamo).
+  var SOURCE_TEXT_REGEX = /[가-힯ᄀ-ᇿ㄰-㆏]/;
+
+  function isTranslatableSource(text) {
+    if (!text) return false;
+    if (text.length < 2) return false;
+    return SOURCE_TEXT_REGEX.test(text);
+  }
+
+  function enqueueRealtime(node, originalText, trimmed, lookup) {
+    if (!state.realtime) return;
+    if (lookup && lookup[trimmed]) return; // already translatable
+    if (!isTranslatableSource(trimmed)) return;
+    if (state.realtimePending[trimmed]) {
+      state.realtimePending[trimmed].push({
+        node: node,
+        originalText: originalText,
+      });
+    } else {
+      state.realtimePending[trimmed] = [
+        { node: node, originalText: originalText },
+      ];
+      state.realtimeQueue.push(trimmed);
+    }
+    scheduleFlush();
+  }
+
+  function scheduleFlush() {
+    if (state.realtimeFlushTimer) return;
+    state.realtimeFlushTimer = setTimeout(function () {
+      state.realtimeFlushTimer = null;
+      flushRealtime();
+    }, state.realtimeDebounceMs);
+  }
+
+  function flushRealtime() {
+    if (state.realtimeInflight) {
+      // Re-schedule after current request finishes.
+      scheduleFlush();
+      return;
+    }
+    if (state.realtimeQueue.length === 0) return;
+    if (!state.currentLocale || state.currentLocale === state.sourceLocale)
+      return;
+
+    var batch = state.realtimeQueue.splice(0, state.realtimeMaxBatch);
+    var pendingForBatch = {};
+    for (var i = 0; i < batch.length; i++) {
+      pendingForBatch[batch[i]] = state.realtimePending[batch[i]] || [];
+      delete state.realtimePending[batch[i]];
+    }
+
+    state.realtimeInflight = true;
+    var locale = state.currentLocale;
+
+    var xhr = new XMLHttpRequest();
+    xhr.open("POST", API_BASE + "/api/translate", true);
+    xhr.setRequestHeader("Authorization", "Bearer " + state.apiKey);
+    xhr.setRequestHeader("Content-Type", "application/json");
+    xhr.timeout = 15000;
+
+    xhr.onload = function () {
+      state.realtimeInflight = false;
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          var data = JSON.parse(xhr.responseText);
+          var translated = (data && data.translated) || [];
+          applyRealtimeBatch(batch, translated, pendingForBatch, locale);
+        } catch (e) {
+          // Parse failure — silently skip, originals stay visible.
+        }
+      }
+      // If queue still has items, schedule next flush.
+      if (state.realtimeQueue.length > 0) scheduleFlush();
+    };
+
+    xhr.onerror = xhr.ontimeout = function () {
+      state.realtimeInflight = false;
+      // Drop this batch silently. Originals remain visible.
+    };
+
+    try {
+      xhr.send(
+        JSON.stringify({
+          texts: batch,
+          from: state.sourceLocale,
+          to: locale,
+        }),
+      );
+    } catch (e) {
+      state.realtimeInflight = false;
+    }
+  }
+
+  function applyRealtimeBatch(sources, translations, pending, locale) {
+    if (state.currentLocale !== locale) return; // user switched languages mid-flight
+
+    var lookup = state.realtimeLookup || {};
+    for (var i = 0; i < sources.length; i++) {
+      var src = sources[i];
+      var dst = translations[i];
+      if (!dst || dst === src) continue;
+      lookup[src] = dst;
+
+      var nodes = pending[src] || [];
+      for (var j = 0; j < nodes.length; j++) {
+        var item = nodes[j];
+        if (!item.node || !item.node.parentNode) continue;
+        var leading = item.originalText.match(/^\s*/)[0];
+        var trailing = item.originalText.match(/\s*$/)[0];
+        var newValue = leading + dst + trailing;
+        if (item.node.nodeValue !== newValue) {
+          state.isTranslating = true;
+          item.node.nodeValue = newValue;
+          state.isTranslating = false;
+          state.originalTexts.push({
+            node: item.node,
+            originalText: item.originalText,
+          });
+        }
+      }
+    }
+    state.realtimeLookup = lookup;
+
+    // Persist to LocalStorage so future page loads skip the API call.
+    try {
+      var key = "taedong_tr_rt_" + state.siteId + "_" + locale;
+      var existing = localStorage.getItem(key);
+      var merged = lookup;
+      if (existing) {
+        var prev = JSON.parse(existing);
+        for (var k in prev) {
+          if (prev.hasOwnProperty(k) && !merged[k]) merged[k] = prev[k];
+        }
+      }
+      localStorage.setItem(key, JSON.stringify(merged));
+    } catch (e) {
+      // Ignore storage errors.
+    }
+  }
+
+  function loadRealtimeCache(locale) {
+    try {
+      var key = "taedong_tr_rt_" + state.siteId + "_" + locale;
+      var raw = localStorage.getItem(key);
+      if (!raw) return {};
+      return JSON.parse(raw) || {};
+    } catch (e) {
+      return {};
+    }
+  }
+
+  function clearRealtimeQueue() {
+    state.realtimeQueue = [];
+    state.realtimePending = {};
+    if (state.realtimeFlushTimer) {
+      clearTimeout(state.realtimeFlushTimer);
+      state.realtimeFlushTimer = null;
+    }
   }
 
   function restoreOriginals() {
@@ -281,6 +466,8 @@
             var leading = original.match(/^\s*/)[0];
             var trailing = original.match(/\s*$/)[0];
             textNode.nodeValue = leading + translated + trailing;
+          } else {
+            enqueueRealtime(textNode, original, trimmed, lookup);
           }
         });
       }
@@ -302,6 +489,7 @@
 
     if (code === state.sourceLocale || lang.isSource) {
       restoreOriginals();
+      clearRealtimeQueue();
       if (state.observer) {
         state.observer.disconnect();
         state.observer = null;
@@ -309,6 +497,9 @@
       updateWidgetUI();
       return;
     }
+
+    // Drop any queued realtime fetches from a previously-selected language.
+    clearRealtimeQueue();
 
     var messages = state.config.messages;
     var sourceMessages = messages[state.sourceLocale] || messages["ko"] || {};
@@ -323,6 +514,19 @@
     }
 
     var lookup = buildTranslationMaps(sourceMessages, targetMessages);
+
+    // Realtime mode: merge cached realtime translations into the lookup so
+    // already-fetched strings render immediately on subsequent page loads.
+    if (state.realtime) {
+      var rtCache = loadRealtimeCache(code);
+      for (var rk in rtCache) {
+        if (rtCache.hasOwnProperty(rk) && !lookup[rk]) {
+          lookup[rk] = rtCache[rk];
+        }
+      }
+      state.realtimeLookup = lookup;
+    }
+
     applyTranslation(lookup);
     setupObserver(lookup);
     updateWidgetUI();
@@ -671,10 +875,16 @@
     state.apiKey = tag.getAttribute("data-api-key");
     state.siteId = state.apiKey; // API 키가 사이트 식별자 역할
     state.showWidget = tag.getAttribute("data-widget") !== "false";
+    state.realtime = tag.getAttribute("data-realtime") === "true";
     var pos = tag.getAttribute("data-position");
     if (pos && /^(bottom-right|bottom-left|top-right|top-left)$/.test(pos)) {
       state.position = pos;
     }
+    var debounce = parseInt(
+      tag.getAttribute("data-realtime-debounce") || "",
+      10,
+    );
+    if (debounce > 0 && debounce < 5000) state.realtimeDebounceMs = debounce;
     return !!state.apiKey;
   }
 
@@ -728,6 +938,17 @@
     },
     getLocale: function () {
       return state.currentLocale;
+    },
+    setRealtime: function (enabled) {
+      state.realtime = !!enabled;
+      if (!state.realtime) clearRealtimeQueue();
+    },
+    flush: function () {
+      if (state.realtimeFlushTimer) {
+        clearTimeout(state.realtimeFlushTimer);
+        state.realtimeFlushTimer = null;
+      }
+      flushRealtime();
     },
     destroy: function () {
       if (state.observer) {

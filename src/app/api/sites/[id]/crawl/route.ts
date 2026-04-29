@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { requireAdmin } from "@/lib/auth";
 
 export const maxDuration = 300;
 
@@ -10,6 +11,8 @@ interface RouteContext {
 // POST /api/sites/[id]/crawl
 // Crawls the site and extracts Korean text for translation
 export async function POST(request: NextRequest, context: RouteContext) {
+  const denied = requireAdmin(request);
+  if (denied) return denied;
   const { id: siteId } = await context.params;
 
   const site = await prisma.site.findUnique({ where: { id: siteId } });

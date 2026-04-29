@@ -1,6 +1,10 @@
-import { translateWithMyMemory } from "@/lib/providers/mymemory";
-import { translateWithStub } from "@/lib/providers/stub";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "./prisma";
+import { lookupMany, writeMany } from "./cache";
+import { resolveProviderChain, bumpQuota, ResolvedProvider } from "./routing";
+import { translateBatchDeepl } from "./providers/deepl";
+import { translateBatchClaude } from "./providers/claude";
+import { translateBatchMyMemory } from "./providers/mymemory";
+import { translateBatchStub } from "./providers/stub";
 
 export interface TranslateResult {
   translated: string;
@@ -9,206 +13,294 @@ export interface TranslateResult {
   inputChars: number;
   outputChars: number;
   cost: number;
+  cacheHit: boolean;
 }
 
-const DEEPL_LANG_MAP: Record<string, string> = {
-  en: "EN",
-  ja: "JA",
-  zh: "ZH",
-};
+export interface BatchResult {
+  translated: string[];
+  provider: string;
+  durationMs: number;
+  inputChars: number;
+  outputChars: number;
+  cost: number;
+  cacheHits: number;
+  cacheMisses: number;
+}
 
-async function translateWithDeepl(
-  text: string,
+interface ProviderInvokeResult {
+  translated: string[];
+  cost: number;
+  inputChars: number;
+}
+
+async function invokeProvider(
+  provider: ResolvedProvider,
+  texts: string[],
   fromLang: string,
   toLang: string,
-  apiKey: string,
-): Promise<TranslateResult> {
-  const start = Date.now();
-  const targetLang =
-    DEEPL_LANG_MAP[toLang.toLowerCase()] ?? toLang.toUpperCase();
+): Promise<ProviderInvokeResult> {
+  const inputChars = texts.reduce((s, t) => s + t.length, 0);
 
-  const response = await fetch("https://api-free.deepl.com/v2/translate", {
-    method: "POST",
-    headers: {
-      Authorization: `DeepL-Auth-Key ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      text: [text],
-      source_lang: fromLang.toUpperCase(),
-      target_lang: targetLang,
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error(
-      `DeepL API error: ${response.status} ${await response.text()}`,
+  if (provider.name === "deepl") {
+    const r = await translateBatchDeepl(
+      texts,
+      fromLang,
+      toLang,
+      provider.apiKey,
     );
+    return { translated: r.translated, cost: 0, inputChars };
   }
 
-  const data = (await response.json()) as {
-    translations: Array<{ text: string }>;
-  };
-  const translated = data.translations[0]?.text ?? "";
-  const durationMs = Date.now() - start;
+  if (provider.name === "claude" && provider.model) {
+    const r = await translateBatchClaude(
+      texts,
+      fromLang,
+      toLang,
+      provider.apiKey,
+      provider.model,
+    );
+    return { translated: r.translated, cost: r.cost, inputChars };
+  }
 
-  return {
-    translated,
-    provider: "deepl",
-    durationMs,
-    inputChars: text.length,
-    outputChars: translated.length,
-    cost: 0,
-  };
+  if (provider.name === "mymemory") {
+    const r = await translateBatchMyMemory(texts, fromLang, toLang);
+    return { translated: r.translated, cost: 0, inputChars };
+  }
+
+  // Final fallback.
+  const r = await translateBatchStub(texts, fromLang, toLang);
+  return { translated: r.translated, cost: 0, inputChars };
 }
 
-async function translateWithClaude(
-  text: string,
+// Try each provider in the chain until one succeeds. Returns which one served.
+async function runChain(
+  texts: string[],
   fromLang: string,
   toLang: string,
-  apiKey: string,
-  model: string,
-): Promise<TranslateResult> {
-  const langNames: Record<string, string> = {
-    en: "English",
-    ja: "Japanese",
-    zh: "Chinese (Simplified)",
-    ko: "Korean",
-    vi: "Vietnamese",
-    th: "Thai",
-    id: "Indonesian",
-    fr: "French",
-    es: "Spanish",
-    de: "German",
-    ru: "Russian",
-    pt: "Portuguese",
-  };
+): Promise<{
+  result: ProviderInvokeResult;
+  provider: ResolvedProvider;
+  errors: string[];
+}> {
+  const totalChars = texts.reduce((s, t) => s + t.length, 0);
+  const chain = await resolveProviderChain(totalChars);
+  const errors: string[] = [];
 
-  const start = Date.now();
-  const targetLangName = langNames[toLang.toLowerCase()] ?? toLang;
-  const sourceLangName = langNames[fromLang.toLowerCase()] ?? fromLang;
-
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: 1024,
-      messages: [
-        {
-          role: "user",
-          content: `Translate the following ${sourceLangName} text to ${targetLangName}. Return only the translated text without any explanation or notes.\n\n${text}`,
-        },
-      ],
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error(
-      `Claude API error: ${response.status} ${await response.text()}`,
-    );
+  for (const provider of chain) {
+    try {
+      const result = await invokeProvider(provider, texts, fromLang, toLang);
+      return { result, provider, errors };
+    } catch (err) {
+      errors.push(`${provider.name}: ${String(err).slice(0, 200)}`);
+      // Continue to next provider.
+    }
   }
 
-  const data = (await response.json()) as {
-    content: Array<{ type: string; text: string }>;
-    usage: { input_tokens: number; output_tokens: number };
-  };
-
-  const translated = data.content.find((b) => b.type === "text")?.text ?? "";
-  const durationMs = Date.now() - start;
-
-  // claude-haiku-4-5 pricing: input $0.80/1M tokens, output $4.00/1M tokens
-  const inputCost = (data.usage.input_tokens / 1_000_000) * 0.8;
-  const outputCost = (data.usage.output_tokens / 1_000_000) * 4.0;
-
+  // Nothing worked — return originals tagged.
   return {
-    translated,
-    provider: "claude",
-    durationMs,
-    inputChars: text.length,
-    outputChars: translated.length,
-    cost: inputCost + outputCost,
+    result: {
+      translated: texts.map((t) => `[${toLang.toUpperCase()}] ${t}`),
+      cost: 0,
+      inputChars: totalChars,
+    },
+    provider: {
+      id: null,
+      name: "stub",
+      displayName: "Stub",
+      apiKey: "",
+      model: null,
+      supportsBatch: true,
+      freeQuotaUsed: 0,
+      freeQuotaLimit: 0,
+    },
+    errors,
   };
 }
 
+async function logTranslation(args: {
+  siteId?: string | null;
+  providerId: string | null;
+  fromLang: string;
+  toLang: string;
+  inputChars: number;
+  outputChars: number;
+  durationMs: number;
+  cost: number;
+  cacheHit: boolean;
+  success: boolean;
+  error?: string;
+}): Promise<void> {
+  try {
+    await prisma.translationLog.create({
+      data: {
+        siteId: args.siteId ?? null,
+        providerId: args.providerId,
+        fromLang: args.fromLang,
+        toLang: args.toLang,
+        inputChars: args.inputChars,
+        outputChars: args.outputChars,
+        durationMs: args.durationMs,
+        cost: args.cost,
+        cacheHit: args.cacheHit,
+        success: args.success,
+        error: args.error,
+      },
+    });
+  } catch {
+    // Logging is best-effort.
+  }
+}
+
+export interface TranslateOptions {
+  siteId?: string | null;
+  skipCache?: boolean;
+}
+
+// Single-text wrapper around the batch path.
 export async function translate(
   text: string,
   fromLang: string,
   toLang: string,
+  options: TranslateOptions = {},
 ): Promise<TranslateResult> {
-  // 1. Try to get default active provider from DB
-  try {
-    const dbProvider = await prisma.provider.findFirst({
-      where: { isDefault: true, active: true },
-    });
+  const r = await translateBatch([text], fromLang, toLang, options);
+  return {
+    translated: r.translated[0] ?? text,
+    provider: r.provider,
+    durationMs: r.durationMs,
+    inputChars: text.length,
+    outputChars: (r.translated[0] ?? "").length,
+    cost: r.cost,
+    cacheHit: r.cacheHits > 0 && r.cacheMisses === 0,
+  };
+}
 
-    if (dbProvider && dbProvider.apiKey) {
-      if (dbProvider.name === "deepl") {
-        return await translateWithDeepl(
-          text,
-          fromLang,
-          toLang,
-          dbProvider.apiKey,
-        );
-      }
+// Core entry point. Always batch-aware.
+export async function translateBatch(
+  texts: string[],
+  fromLang: string,
+  toLang: string,
+  options: TranslateOptions = {},
+): Promise<BatchResult> {
+  const start = Date.now();
 
-      if (dbProvider.name === "claude" && dbProvider.model) {
-        return await translateWithClaude(
-          text,
-          fromLang,
-          toLang,
-          dbProvider.apiKey,
-          dbProvider.model,
-        );
-      }
+  if (texts.length === 0) {
+    return {
+      translated: [],
+      provider: "noop",
+      durationMs: 0,
+      inputChars: 0,
+      outputChars: 0,
+      cost: 0,
+      cacheHits: 0,
+      cacheMisses: 0,
+    };
+  }
+
+  // Same-language passthrough — never spend quota.
+  if (fromLang === toLang) {
+    return {
+      translated: [...texts],
+      provider: "passthrough",
+      durationMs: 0,
+      inputChars: texts.reduce((s, t) => s + t.length, 0),
+      outputChars: texts.reduce((s, t) => s + t.length, 0),
+      cost: 0,
+      cacheHits: texts.length,
+      cacheMisses: 0,
+    };
+  }
+
+  // 1. Cache lookup.
+  const lookups = options.skipCache
+    ? texts.map((t) => ({ text: t, translated: null, hash: "" }))
+    : await lookupMany(texts, fromLang, toLang);
+
+  const result: string[] = new Array(texts.length).fill("");
+  const missIndexes: number[] = [];
+  const missTexts: string[] = [];
+
+  for (let i = 0; i < lookups.length; i++) {
+    const hit = lookups[i].translated;
+    if (hit !== null) {
+      result[i] = hit;
+    } else if (texts[i].trim().length === 0) {
+      // Empty/whitespace-only strings — passthrough, no API call.
+      result[i] = texts[i];
+    } else {
+      missIndexes.push(i);
+      missTexts.push(texts[i]);
     }
-  } catch {
-    // DB lookup failed — fall through to env-based fallbacks
   }
 
-  // 2. Fallback: env vars (legacy support)
-  if (process.env.DEEPL_API_KEY) {
-    return translateWithDeepl(
-      text,
+  let providerName = "cache";
+  let providerId: string | null = null;
+  let cost = 0;
+  let outputChars = 0;
+  let inputCharsCharged = 0;
+
+  if (missTexts.length > 0) {
+    const { result: chainResult, provider } = await runChain(
+      missTexts,
       fromLang,
       toLang,
-      process.env.DEEPL_API_KEY,
     );
+
+    providerName = provider.displayName;
+    providerId = provider.id;
+    cost = chainResult.cost;
+    inputCharsCharged = chainResult.inputChars;
+
+    for (let j = 0; j < missIndexes.length; j++) {
+      result[missIndexes[j]] = chainResult.translated[j] ?? missTexts[j];
+      outputChars += (chainResult.translated[j] ?? "").length;
+    }
+
+    // Cache writes (best-effort, don't await).
+    if (!options.skipCache && provider.name !== "stub") {
+      writeMany(
+        missIndexes.map((idx, j) => ({
+          text: missTexts[j],
+          translated: chainResult.translated[j] ?? missTexts[j],
+          fromLang,
+          toLang,
+          provider: provider.name,
+        })),
+      ).catch(() => {});
+    }
+
+    // Quota bookkeeping.
+    bumpQuota(provider.id, inputCharsCharged).catch(() => {});
+  } else {
+    // 100% cache hit.
+    outputChars = result.reduce((s, t) => s + t.length, 0);
   }
 
-  if (process.env.ANTHROPIC_API_KEY) {
-    return translateWithClaude(
-      text,
-      fromLang,
-      toLang,
-      process.env.ANTHROPIC_API_KEY,
-      "claude-haiku-4-5",
-    );
-  }
+  const durationMs = Date.now() - start;
+  const totalInput = texts.reduce((s, t) => s + t.length, 0);
 
-  // 3. MyMemory: free translation API, no key required
-  try {
-    const result = await translateWithMyMemory(text, fromLang, toLang);
-    return {
-      ...result,
-      provider: "mymemory",
-      inputChars: text.length,
-      outputChars: result.translated.length,
-      cost: 0,
-    };
-  } catch {
-    // Last resort: stub
-    const result = await translateWithStub(text, fromLang, toLang);
-    return {
-      ...result,
-      provider: "stub",
-      inputChars: text.length,
-      outputChars: result.translated.length,
-      cost: 0,
-    };
-  }
+  // Async log — don't block.
+  logTranslation({
+    siteId: options.siteId,
+    providerId,
+    fromLang,
+    toLang,
+    inputChars: totalInput,
+    outputChars,
+    durationMs,
+    cost,
+    cacheHit: missTexts.length === 0,
+    success: true,
+  }).catch(() => {});
+
+  return {
+    translated: result,
+    provider: providerName,
+    durationMs,
+    inputChars: totalInput,
+    outputChars,
+    cost,
+    cacheHits: texts.length - missTexts.length,
+    cacheMisses: missTexts.length,
+  };
 }
